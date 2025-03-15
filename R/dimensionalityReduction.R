@@ -1,6 +1,6 @@
-#' @title Run PCA or LSI dimensionality reduction on tiles
+#' @title \code{bulkDimReduction}
 #'
-#' @description \code{bulkDimReduction} runs dimensionality reduction (either PCA or LSI)
+#' @description \code{bulkDimReduction} runs dimensionality reduction (either PCA or LSI). We adapt Signac's
 #'
 #' @param SampleTileObj The SummarizedExperiment object output from getSampleTileMatrix
 #' @param cellType vector of strings. Cell subsets for which to call
@@ -20,52 +20,34 @@
 #' LSIObj <- MOCHA::bulkDimReduction(SampleTileObj, cellType = "CD16_Mono")
 #' }
 #' @export
-#' @keywords downstream
+#' @keywords data_object_manipulation
+#'
 bulkDimReduction <- function(SampleTileObj, cellType = "All", componentNumber = 30, method = "LSI", verbose = FALSE) {
+
   if (!requireNamespace("irlba", quietly = TRUE)) {
     stop(
       "Package 'irlba' is required for bulkDimReduction. ",
       "Please install 'irlba' to proceed."
     )
   }
-
+  
   allCellTypes <- names(SummarizedExperiment::assays(SampleTileObj))
   if (all(tolower(cellType) == "all")) {
-    fullObj <- combineSampleTileMatrix(SampleTileObj)
+    fullObj <- MOCHA::combineSampleTileMatrix(SampleTileObj)
     countMat <- SummarizedExperiment::assays(fullObj)[[1]]
-  } else if (all(cellType %in% allCellTypes) & cellType != 'counts') {
-    newTSAM <- subsetMOCHAObject(SampleTileObj,
+  } else if (all(cellType %in% allCellTypes)) {
+    newTSAM <- MOCHA::subsetMOCHAObject(SampleTileObj,
       subsetBy = "celltype",
       groupList = cellType, subsetPeaks = TRUE,
       verbose = verbose
     )
-    fullObj <- combineSampleTileMatrix(newTSAM)
+    fullObj <- MOCHA::combineSampleTileMatrix(newTSAM)
     countMat <- SummarizedExperiment::assays(fullObj)[[1]]
-  } else if (all(cellType %in% allCellTypes) & cellType == 'counts') {
-
-    fullObj <- SampleTileObj
-    countMat <- SummarizedExperiment::assays(fullObj)[[1]]
-      
   } else {
     stop("cellType not found. SampleTileObj must contain the given cellType.")
   }
 
   countMat[is.na(countMat)] <- 0
-    
-  #Check for empty columns. 
-  colSumVec <- colSums(countMat)
-  #Pull out sample metadata
-  sampleMeta <- SummarizedExperiment::colData(fullObj)
-  if(any(colSumVec == 0)){
-      
-      
-    countMat <- countMat[,colSumVec!=0]
-    totalRemoved <- sum(colSumVec == 0)
-    warning(stringr::str_interp(" ${totalRemoved} Columns were empty and removed."))
-      
-    sampleMeta2 <- sampleMeta[colSumVec!=0,]
-      
-   }
 
   if (tolower(method) == "lsi") {
     if (!requireNamespace("irlba", quietly = TRUE)) {
@@ -104,9 +86,8 @@ bulkDimReduction <- function(SampleTileObj, cellType = "All", componentNumber = 
     DimReducObj <- SummarizedExperiment::SummarizedExperiment(
       assayList1,
       metadata = newMetadata,
-      colData =sampleMeta
+      colData = SummarizedExperiment::colData(fullObj)
     )
-      
   } else if (tolower(method) == "pca") {
 
     # SVD step, using 30 components
@@ -136,7 +117,7 @@ bulkDimReduction <- function(SampleTileObj, cellType = "All", componentNumber = 
       assayList1,
       rowData = t(loadings),
       metadata = newMetadata,
-      colData = sampleMeta
+      colData = SummarizedExperiment::colData(fullObj)
     )
   } else {
     stop("Method not recognized. Must be LSI or PCA.")
@@ -145,19 +126,18 @@ bulkDimReduction <- function(SampleTileObj, cellType = "All", componentNumber = 
   return(DimReducObj)
 }
 
-#' @title Generate UMAP from pseudobulk LSI results
+#' @title \code{bulkUMAP}
 #'
-#' @description \code{bulkUMAP} generates UMAP from pseudobulk LSIObj object from \link[MOCHA]{bulkDimReduction}
+#' @description \code{bulkUMAP} generates UMAP from pseudobulk LSIObj object, and merges in metadata.
 #'
-#' @param SEObj The SummarizedExperiment object output from bulkDimReduction, or an STM, subset to just one cell type.  
-#' @param assay A string, describing the name of the assay within SEObj to run UMAP ('PCA', 'LSI', or 'counts'). 
+#' @param SEObj The SummarizedExperiment object output from bulkDimReduction, or an STM, subsetted down to just one cell type.
+#' @param assay A string, describing the name of the assay within SEObj to run UMAP ('PCA', 'LSI', or 'counts').
 #' @param components A vector of integers. Number of components to include in LSI (1:30 typically).
 #' @param seed an integer. Represents the random seed to pass to the UMAP. Default seed is 1.
 #' @param returnModel A boolean. Default is FALSE. If set to true, it will return a list, where the first is the UMAP coordinates with metadata for plotting, and the second is the full UMAP model so further projection can occur.
 #' @param nNeighbors See  \link[uwot]{umap}. The size of local neighborhood (in terms of number of
 #'           neighboring sample points) used for manifold approximation. Default is 15.
 #' @param ... Additional arguments to be passed to \link[uwot]{umap}.
-#' @param verbose Set TRUE to display additional messages. Default is FALSE.
 #'
 #' @return fullUMAP data.frame of UMAP values with metadata attached.
 #'
@@ -166,13 +146,13 @@ bulkDimReduction <- function(SampleTileObj, cellType = "All", componentNumber = 
 #' UMAPvalues <- MOCHA::bulkUMAP(LSIObj)
 #' }
 #' @export
-#' @keywords downstream
+#' @keywords data_object_manipulation
+#'
 bulkUMAP <- function(SEObj,
                      assay = "LSI",
                      components = c(1:30),
                      nNeighbors = 15,
                      returnModel = FALSE,
-                     verbose = TRUE,
                      seed = 1,
                      ...) {
   if (!requireNamespace("uwot", quietly = TRUE)) {
@@ -183,52 +163,10 @@ bulkUMAP <- function(SEObj,
   }
 
   set.seed(seed)
-
-  allCellTypes <- names(SummarizedExperiment::assays(SEObj))
-  if(assay %in% c("LSI","PCA")){
-    countMat <- t(SummarizedExperiment::assays(SEObj)[[assay]])
-    sampleMeta <- SummarizedExperiment::colData(SEObj)
-  }else if (all(tolower(assay) == "all")) {
-    fullObj <- combineSampleTileMatrix(SEObj)
-    countMat <- SummarizedExperiment::assays(fullObj)[[1]]
-    sampleMeta <- SummarizedExperiment::colData(SEObj)
-  } else if (all(assay %in% allCellTypes) & assay != 'counts') {
-    newTSAM <- subsetMOCHAObject(SEObj,
-      subsetBy = "celltype",
-      groupList = assay, subsetPeaks = TRUE,
-      verbose = verbose
-    )
-    fullObj <- combineSampleTileMatrix(newTSAM)
-    countMat <- SummarizedExperiment::assays(fullObj)[[1]]
-    sampleMeta <- SummarizedExperiment::colData(SEObj)
-      
-  }else if(all(assay %in% allCellTypes) & assay == 'counts'){
-     fullObj <- SEObj
-     countMat <- SummarizedExperiment::assays(fullObj)[[1]]
-    sampleMeta <- SummarizedExperiment::colData(SEObj)
-  } else {
-    stop("Assay was not represented in the SEObj.")
+  if (!any(names(SummarizedExperiment::assays(SEObj)) == assay)) {
+    stop("Assay was not represented in the SEObj. ")
   }
-    
-  if(!assay %in% c('LSI', 'PCA')){
-  
-      countMat[is.na(countMat)] <- 0
-      
-      #Check for empty columns. 
-      colSumVec <- colSums(countMat)
-      if(any(colSumVec == 0)){
-
-
-        countMat <- countMat[,colSumVec!=0]
-        totalRemoved <- sum(colSumVec == 0)
-        warning(stringr::str_interp(" ${totalRemoved} Columns were empty and removed."))
-
-        sampleMeta <- sampleMeta[colSumVec!=0,]
-       }
-      countMat <- t(countMat)
-      components = c(1:dim(countMat)[2])
-
-   }
+  countMat <- t(SummarizedExperiment::assays(SEObj)[[assay]])
 
   if (any(is.na(countMat))) {
     stop("The given matrix contains NA. Remove and try again.")
@@ -261,7 +199,7 @@ bulkUMAP <- function(SEObj,
 
     fullUMAP <- dplyr::left_join(
       subUMAP,
-      as.data.frame(sampleMeta),
+      as.data.frame(SummarizedExperiment::colData(SEObj)),
       by = "Sample"
     )
 

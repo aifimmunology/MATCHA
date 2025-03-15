@@ -1,0 +1,208 @@
+---
+title: "Modeling Tips & Tricks"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Modeling Tips & Tricks}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+Modeling is complicated. Here's are some of the tips and tricks we've found for accurately modeling various types of data
+
+
+## scATAC-seq via MOCHA
+
+Even when pseudobulked, scATAC-seq is highly zero-inflated. Generally speaking, stable modeling thus requires a zero-inflated term. 
+This zero-inflated term should include a fixed intercept at 0, which limits one degree of freedom and helps model performance, as well
+as fragment number (FragNumber) to control for the influence of read number on drop-out. Additional factors can be added on to there. 
+
+See MOCHA for details on how scATAC-seq can be processed to enable modeling. 
+https://aifimmunology.github.io/MOCHA/articles/COVID-walkthrough.html
+
+Example: 
+```r
+atacModel <- model_scATAC(atacSE = atacSE, 
+                          cellPopulation = 'CD16 Mono', 
+                          continuousFormula = exp ~ Age + Sex + COVID_status,
+                          ziFormula = ~ 0 + FragNumber + Sex,
+                          zi_threshold = 0, 
+                          numCores = 15,
+                          verbose = TRUE)
+```
+
+Under the hood, ChAI will only run zero-inflated modeling in the presence of zeroes. It takes the normalized intensities, and log-normalizes them so that they are within a roughly normal distribution. 
+Given the normalization within MOCHA, empty regions are not inputed and remain zero. This generates samples around zero and a clear normal distribution above it. 
+
+However, a few highly accessible regions may not have any zeroes, or very few. ChAI adapts according to the region, dropping the zero-inflated formula (i.e. only using the continuous formula) if no zeroes are present. 
+If only a few samples are zero-inflated, ChAI makes a decision whether to implement zero-inflated modeling with few zeroes or remove zeros from the model, depending on the zi_threshold. 
+the zi_threshold, set from 0-1 (0%-100%), should be determined heuristically by analyzing model stability in the pilot_scATAC formula.
+If too few zeroes are present, we have no way of estimating whether zeroes are from sequencing depth or from another biological factor. As a result, the model will be unable to estimate coefficients for the zero-inflated factors, and the model will fail to converge. 
+However, if you drop the zero-inflated formula while keeping the zeros in your data, you will allow potential sequencing artifacts to influence your model results. 
+Our compromise is removing those few zeroes, and attempting to fit accessibility shifts on the non-zero components. 
+
+Additionally, binary shifts (i.e. closed regions become suddenly accessible) within a cell type are quite rare, and typically only observed during a state change. They could theoretically still occur, but are much more likely to be in low accessibility reigons that are harder to identify without massive numbers of samples/cells. 
+With enough samples, however, significant shifts in zero-inflation can be significantly associated with biological factors, independent of fragment number. 
+
+## scRNA-seq modeling 
+
+ChAI currently supports the modeling of pseodubulked scRNA-seq, whether via meta-cells or sample-based modeling, via the command makePseudobulkRNA (which includes normalization via DESeq2).
+
+The best practice for modeling pseudobulked scRNA-seq will depend on the cell number for the given cell type across samples. When pseudobuling on larger populations (50-100+ cells per sample), each samples behaviors similarly to bulk RNA, and thus can be modeled without a zero-inflated component. I generally see better performance with a poisson, as opposed to negative binomial distribution, but they can both be used practically. Unlike DESeq2, ChAI allows for random effects and enables the user to control for technical artifacts related to cell number (or other factors). 
+
+However, for celltypes with highly variable cell number or consistently low cell numbers, zero-inflation and over-dispersion is common. A wierd blend of single cell behavior and pseudobulk behavior results here. In these conditions, a zero-inflated term is necessary, in the form of ~ 0 + CellCounts. CellCounts can also be replaced with any other term that will help control for the influence of varying cell numnber. Lastly, practically speaking, a negative biniomial (negativeBinomial2) produces much more accurate models than the poisson. In our hands we've seen the number of genes with significant KS tests and dispersion tests drop from 50% to 5%, just from this change. 
+We also generally expect zero-inflation to be related to pseudobulk issues only here, so I would not recommend adding biological factors to the ziFormula. 
+
+Lastly, we recommend using a minimum cell count threshold of 10 cells. If samples have below this threshold, they will be removed before modeling. We find that increasing this threshold does little to improve model performance and hurts statistical power. Below this, sparsity increases greatly. 
+This assumptions and experiences may not hold true in your data, and we welcome your input on best practices via the Github repo. 
+
+Example: 
+```r
+rnaModel <- model_scRNA(rnaSE, 
+                          cellPopulation = #some small cell type, 
+                          continuousFormula = exp ~ Age + Sex + COVID_status,
+                          ziFormula = ~ 0 + CellCounts,
+                          cellCounts = 10,
+                          numCores = 15,
+                          verbose = TRUE)
+```
+## ChromVAR modeling 
+
+ChromVAR modeling is straight forward, with motif deviations typically in the roughly normal space. While z-sores are normalized by sequencing depth, we still recommend including FragNumber as a term in the model, given that we've seen improved model performance from it's inclusion. 
+
+Example: 
+```r
+chromModel <- model_chromVAR(chromSE = chromSE, 
+                             cellPopulation = 'CD16 Mono', 
+                             modelFormula = exp ~ Age + Sex + COVID_status + FragNumber,
+                             numCores = 15,
+                             verbose = TRUE)
+```
+
+## Olink modeling 
+
+Proteomics data from the Olink should be modeled after their normalization procedure. At this point, it is quite normally distributed and easy to model. 
+Olink scores can be very easily inputed to ChAI via importGeneralModality. 
+
+Example: 
+```r
+proteinModel <- model_General(ExperimentObj = OlinkSE, 
+                              assayName = 'General', 
+                              modelFormula = exp ~ Age + Sex + Status,
+                              family = stats::gaussian(),
+                              numCores = 15,
+                              verbose = TRUE)
+```
+
+## Flow Cytometry Frequencies
+
+ChAI can model flow cytometry frequencies, after a center-log ratio transformation. This is necessary for modeling, regardless of the package. 
+
+A similar approach could be conducted with flow values. You would just need to figure out the distribution. 
+
+Example: 
+```r
+
+flow_mat_clr = apply(flow_mat, 2, function(x) {
+                    log1p(x = x/(exp(x = sum(log1p(x = x[x > 0]), na.rm = TRUE)/length(x = x))))
+                  })
+
+flowSE <- importGeneralModality(flow_mat_clr, flow_metadata)
+
+flowFreqModel <- model_General(ExperimentObj = flowSE, 
+                              assayName = 'General', 
+                              modelFormula = exp ~ Age + Sex + Status,
+                              family = glmmTMB::nbinom2(),
+                              numCores = 15,
+                              verbose = TRUE)
+
+```
+
+
+## Bulk RNA-seq
+
+ChAI should be able to model bulk RNA, but we have not yet tested it thoroughly. You able to worked out optimal modeling parameters via pilot_General().
+For bulk RNA modeling, you can import RNA data via importGeneralModality. However, glmmSeq and others have worked out modeling in bulk RNA quite well. We suggest you check their package out.
+
+You can always export glmmSeq DEGs, and use them for testing out scRNA-based associations. 
+
+Example: 
+```r
+
+bulkRNA <- importGeneralModality(bulkRNA_matrix, bulk_rna_metadata)
+
+bulkRNAModel <- model_General(ExperimentObj = bulkRNA , 
+                              assayName = 'General', 
+                              modelFormula = exp ~ Age + Sex + Status,
+                              family = glmmTMB::nbinom2(),
+                              numCores = 15,
+                              verbose = TRUE)
+# Alternatively, you can import DEGs from DESeq2, glmmSeq, or other packages. 
+
+degs <- read.csv('degList.csv')$genes
+
+bulkRNA_Associations <- General_Associations(SE1 = bulkRNA, Assay1 = 'General',
+			                      SE2 = otherModality, Assay2 = 'General',
+			                      sampleColumn = 'Sample', 
+                                    modelFormula = exp1 ~ Age + Sex + exp2 , 
+                                    geneList = degs, 
+                                    generalList = otherList, 
+                                    numCores = 15)
+
+```
+
+## Bulk ATAC-seq
+
+ChAI should be able to model bulk ATAC-seq, but we have not yet tested it thoroughly. 
+For these examples, you can import via importGeneralModality. However, glmmSeq and others have worked out modeling in bulk RNA quite well. We suggest you check their package out.
+
+You can always export glmmSeq DEGs, and use them for testing out scRNA-based associations. 
+
+Example: 
+```r
+
+bulkATAC <- importGeneralModality(bulkATAC_matrix, bulk_ATAC_metadata)
+
+bulkATACModel <- model_General(ExperimentObj = bulkATAC , 
+                              assayName = 'General', 
+                              modelFormula = exp ~ Age + Sex + Status,
+                              family = glmmTMB::nbinom2(),
+                              numCores = 15,
+                              verbose = TRUE)
+# Alternatively, you can import DEGs from DESeq2, glmmSeq, or other packages. 
+
+daps <- read.csv('differential_peak_List.csv')$genes
+
+bulkATAC_Associations <- General_Associations(SE1 = bulkATAC, Assay1 = 'General',
+			                      SE2 = otherModality, Assay2 = 'General',
+			                      sampleColumn = 'Sample', 
+                                    modelFormula = exp1 ~ Age + Sex + exp2 ,
+                                    geneList = daps, 
+                                    generalList = otherList, 
+                                    numCores = 15)
+
+```
+
+
+
+## Integrative Modeling
+
+Modeling across modalities generally follows the same advice as above. We usually see that if identify an excellent model formula for scRNA, the same or highly similar model formula will be stable for all scRNA Associations. 
+
+However, please keep track of the data within the second data type. Within ChAI, we generally always model the most complex data type using the less complex data type (i.e. scRNA using ChromVAR, or scATAC using scRNA). 
+This produces more stable models, but also means that when you need to pay careful attention to what type of data you are using in the generalSE object. 
+
+In several cases, we take care of transformations to stabilize the model. For example, we log-transform pseudobulk scRNA intensities before modeling Gene-tile associations, in order to stabilize the resulting models. 
+
+When using more complex data within the generalSE object, we suggest transforming the data into a normal or near-normal space for model stability. Suggest transforms include the center-log ratio (for frequency data), or log-normalization (for count data.)
+
+Example: 
+```r
+gene_protein <- scRNA_Associations(rnaSE = rnaSE, cellPopulation = # some small cell type, 
+			                      generalSE = subOlink, generalAssay = 'General',
+			                      sampleColumn = 'PTID_visit', 
+                                    modelFormula = exp1 ~ Age + Sex + exp2 , 
+                                    ziFormula = ~ 0 + CellCounts,
+                                    geneList = sigGenes$Genes, 
+                                    generalList = 'IFNL1', 
+                                    numCores = 15)
+```

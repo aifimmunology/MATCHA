@@ -1,114 +1,73 @@
-Package: MOCHA
+Package: ChAI
 Type: Package
-Title: Modeling for Single-Cell Open Chromatin Analysis
-Version: 1.2.0
+Title: Crossmodal Modeling, Associations, & Integrations
+Version: 1.0.0
 Authors@R: 
-    c(person(given = "Samir",
-           family = "Rachid Zaim",
-           role = c("aut", "ctb"),
-           email = "samir.rachidzaim@alleninstitute.org"),
-    person(given = "Mark-Phillip",
+    c(person(given = "Mark-Phillip",
            family = "Pebworth",
-           role = c("aut", "ctb"),
+           role = c("aut", "cre"),
            email = "markphillip.pebworth@alleninstitute.org"),
     person(given = "Imran",
            family = "McGrath",
-           role = c("aut", "cre"),
-           email = "aifi.compbio.support@alleninstitute.org"),
-    person(given = "Lauren",
-           family = "Okada",
            role = c("aut", "ctb"),
-           email = "lauren.okada@alleninstitute.org"),
-    person(given = "Xiaojun",
-           family = "Li",
+           email = "imran.mcgrath@alleninstitute.org"),
+     person(given = "Samir",
+           family = "Rachid Zaim",
            role = c("aut", "ctb"),
-           email = "xiaojun.li@alleninstitute.org")
+           email = "samir.rachizaim@alleninstitute.org")
     )
 Maintainer: 
-        Imran McGrath <aifi.compbio.support@alleninstitute.org>
-Description: A statistical framework and analysis tool for open chromatin 
-  analysis designed specifically for single cell ATAC-seq (Assay for 
-  Transposase-Accessible Chromatin) data, after cell type/cluster 
-  identification. These novel modules remove unwanted technical variation, 
-  identify open chromatin, robustly models repeated measures in single cell 
-  data, implement advanced statistical frameworks to model zero-inflation for 
-  differential and co-accessibility analyses, and integrate with existing 
-  databases and modules for downstream analyses to reveal biological insights. 
-  MOCHA provides a statistical foundation for complex downstream analysis to 
-  help advance the potential of single cell ATAC-seq for applied studies. 
-  Methods for zero-inflated statistics are as described in: 
-  Ghazanfar, S., Lin, Y., Su, X. et al. (2020) <doi:10.1038/s41592-020-0885-x>.
-  Pimentel, Ronald Silva, "Kendall's Tau and Spearman's Rho for Zero-Inflated 
-  Data" (2009) <https://scholarworks.wmich.edu/dissertations/721/>.
+        Imran McGrath <imran.mcgrath@alleninstitute.org>
+Description: A statistical framework for high-throughput generalized linear mixed effect modeling of multiple types of data, taken from the same samples. This package enables the rapid analysis of massive single cell datasets (>1 M+), and then integrating those results into bulk-level measurements, like olink, flow cytometry, or CBC data. scRNA-seq, scATAC-seq, and ChromVAR are explicitly supported, while any other types of data can be imported via importGeneralModality.This import strategy has been successful for the analysis and integration of Olink proteomic measurements and cell type frequencies (from scRNA or flow cytometry).
+    After data import, each modality can be modeled individual, and specific features from each data type can be associated across data types to test hypothesis (e.g. what gene could this epigenetic region be influencing? What gene expression could this ligand be activating? What cell type frequency could this serum protein be influencing?). Finally, the results can be integrated into networks, and exported for viewing in IGV viewer (Gene expression-Accessibility relationships), or any network construction tool (e.g. Cytoscape). Examples of possible networks include Gene-regulatory networks (Motif-Accessibility-Gene expression), proliferation-related Signaling cascades (serum proteins, gene expression, cellular frequencies). 
+    Methodology-wise, the package is built entirely around the usage of SummarizedExperiments, to allow easy use and maximum capability with other packages. All modeling is down using glmmTMB, enabling a random effects, zero-inflated modeling, and wide range of data distribution. Support functions allow for easy access to information in data objects or model objects (the output from high-throughput modeling). 
+    All in all, ChAI provides the ability to analyze and integrate multimodal data, regardless of modality, from large scale human cohorts. The ultimate goal is to identify and reconstruct disease-relevant pathways, whether signaling pathways, gene regulatory networks, or other. 
 License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
 RoxygenNote: 7.3.2
-URL: https://aifimmunology.github.io/MOCHA/, https://github.com/aifimmunology/MOCHA
-BugReports: https://github.com/aifimmunology/MOCHA/issues
 Depends: R (>= 4.1.0)
-biocViews:
 Imports:
     data.table,
+    knitr,
     plyranges (>= 1.14.0),
     dplyr,
     GenomicRanges,
-    RaggedExperiment,
-    MultiAssayExperiment,
     SummarizedExperiment,
     stringr,
-    ggbio,
-    wCorr,
-    magrittr,
-    rlang,
-    AnnotationDbi,
     BiocGenerics,
     GenomeInfoDb,
     GenomicFeatures,
-    IRanges,
     S4Vectors,
-    assertthat,
-    ensembldb,
+    glmmTMB,
     ggplot2,
     ggrepel,
-    matrixStats,
     methods,
-    qvalue,
-    scales,
     tidyr,
-    ggridges,
     pbapply,
     BSgenome,
-    tidyselect,
-    lifecycle
+    SEtools,
+    irlba,
+    DHARMa,
+    plyr,
+    uwot
 Suggests: 
-    ArchR,
-    RMariaDB,
     motifmatchr,
     BiocManager,
-    TxDb.Hsapiens.UCSC.hg38.refGene,
-    TxDb.Hsapiens.UCSC.hg19.knownGene,
-    org.Hs.eg.db,
-    BSgenome.Hsapiens.UCSC.hg19,
-    withr,
-    knitr,
-    rmarkdown,
     chromVAR,
     testthat (>= 3.0.0),
-    uwot,
-    irlba,
-    glmmTMB,
     Matrix,
-    waldo,
-    purrr,
-    lmerTest,
-    Biobase,
-    lme4,
-    zip,
-    rtracklayer,
-    cowplot,
-    mixtools,
-    zoo
+    spelling,
+    DESeq2,
+    ggrastr,
+    MOCHA,
+    BiocParallel,
+    GSVA,
+    rmarkdown
 Additional_repositories: https://imran-aifi.github.io/drat
+biocViews: Data analysis, Chromatin Accessibility, Single cell, scATAC, scRNA, Gene Expression, Integration, Multimodal, Software, Visualization
 VignetteBuilder: knitr
 Config/testthat/edition: 3
+Language: en-US
+URL: https://scaling-journey-gqw8w3k.pages.github.io/,
+    https://aifimmunology.github.io/ChAI/

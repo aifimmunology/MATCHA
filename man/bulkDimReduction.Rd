@@ -2,7 +2,7 @@
 % Please edit documentation in R/dimensionalityReduction.R
 \name{bulkDimReduction}
 \alias{bulkDimReduction}
-\title{Run PCA or LSI dimensionality reduction on tiles}
+\title{\code{bulkDimReduction}}
 \usage{
 bulkDimReduction(
   SampleTileObj,
@@ -30,7 +30,7 @@ calling is done on all cell populations. Default is 'ALL'.}
 SEObj a SummarizedExperiment containing PC components from dimensionality reduction and metadata from the SampleTileObj
 }
 \description{
-\code{bulkDimReduction} runs dimensionality reduction (either PCA or LSI)
+\code{bulkDimReduction} runs dimensionality reduction (either PCA or LSI). We adapt Signac's
 }
 \examples{
 \dontrun{
@@ -40,4 +40,4 @@ LSIObj <- MOCHA::bulkDimReduction(SampleTileObj, cellType = "CD16_Mono")
 \references{
 LSI method adapted from Andrew Hill: http://andrewjohnhill.com/blog/2019/05/06/dimensionality-reduction-for-scatac-data/
 }
-\keyword{downstream}
+\keyword{data_object_manipulation}

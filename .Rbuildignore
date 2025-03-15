@@ -5,6 +5,7 @@
 ^cran-comments\.md$
 ^data-raw$
 ^CRAN-SUBMISSION$
-^_pkgdown\.yml$
 ^docs$
+^vignettes/articles$
+^_pkgdown\.yml$
 ^pkgdown$

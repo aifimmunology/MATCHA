@@ -40,6 +40,7 @@ ipython_config.py
 # R Environment Variables
 .Renviron
 # pkgdown site
+docs/
 # translation temp files
 po/*~
 # RStudio Connect folder
@@ -49,5 +50,4 @@ rsconnect/
 /*_files/
 # End of https://www.toptal.com/developers/gitignore/api/r,jupyternotebooks
 inst/doc
-# Files generated from pkgdown::build* functions
-^docs$
+docs

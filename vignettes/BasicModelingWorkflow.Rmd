@@ -1,0 +1,705 @@
+---
+title: "Basic Modeling Workflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Basic Modeling Workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+This vignette will discuss how ChAI can be used to do high-throughput modeling across scRNA, scATAC, ChromVAR, and more. 
+
+
+## Package and Data loading. 
+
+One goal of ChAI is to provide a standardized, easy-to-use, and efficient package for high-throughput modeling, regardless of the modality involved. 
+From there, that allows for modeling of more complex associations, and eventually, network generation. Those will be address in later articles.
+
+
+
+```r
+library(ChAI)
+library(SummarizedExperiment)
+library(ggplot2)
+library(Biostrings)
+library(rtracklayer)
+```
+
+Load in example data, taken from the first visit of the Longitudinal COVID19 cohort. 
+This will include both COVID19+ and Uninfected Individuals. 
+
+This vignette will show how ChAI can be used to model COVID-related changes across multiple modalities, 
+and model statistical interactions between IFNG protein levels, IRF motif activity, ISG Genes, and regulatory regions near ISG genes. 
+Finally, we will construct a regulatory network based on statistical associations linking all modalities. 
+
+But first, we need to load in the data. 
+
+ChAI is designed accept a SummarizedExperiment from MOCHA that has the Tile-Sample Accessibility Matrix. 
+
+
+
+```r
+atacSE <- readRDS('atac_Obj.rds')
+atacSE
+```
+
+```
+## class: RangedSummarizedExperiment 
+## dim: 244091 39 
+## metadata(7): summarizedData Genome ... History Motifs
+## assays(1): CD16 Mono
+## rownames(244091): chr1:1000000-1000499 chr1:100037000-100037499 ... chrY:7869500-7869999 chrY:7874000-7874499
+## rowData names(3): CD16 Mono tileType Gene
+## colnames(39): B011-AP0C1W3 B011-AP0C1W8 ... FSQEAZ0C2D3-02 FSQFAZ0BZJQ-02
+## colData names(193): Sample well_id ... AutoimmuneOrCancer Groups
+```
+
+
+Let's load in the ChAI scRNA object
+As an aside, ChAI  accepts a Seurat object with cell type labels, via makePseudobulkRNA, 
+which outputs a SummarizedExperiment normalized, pseudobulked gene counts, 
+along with metadata like the cell counts for a given cell type, or the percent detected for a given gene. 
+We are going to load in a pre-processed object here for the sake of time. 
+
+
+
+```r
+rnaSE <- readRDS('scRNA_ChAI_Object.rds')
+rnaSE
+```
+
+```
+## class: RangedSummarizedExperiment 
+## dim: 21562 41 
+## metadata(3): summarizedData detectionRates History
+## assays(1): CD16 Mono
+## rownames(21562): A1BG A1BG-AS1 ... ZYX ZZEF1
+## rowData names(5): gene_id GeneSymbol MultipleMappings Promoters Strand_Direction
+## colnames(41): FSQAAZ0BZHX-01 FSQAAZ0C1RW-02 ... FSQKAZ0C234-01 FSQKAZ0C378-01
+## colData names(12): Age days_symptom_onset ... visit PTID_visit
+```
+
+For Motif deviations, ChAI can turn a MOCHA Tile-Sample Object into a SummarizedExperiment of ChromVAR Z-scores, 
+using the function makeChromVAR. This step is long, so we will load the ChromVAR scores in here. 
+
+
+
+```r
+chromSE <- readRDS('ChromVAR_ChAI_Object.rds')
+chromSE
+```
+
+```
+## class: SummarizedExperiment 
+## dim: 870 39 
+## metadata(2): summarizedData History
+## assays(1): CD16_Mono
+## rownames(870): TFAP2B TFAP2D ... TBX18 TBX22
+## rowData names(0):
+## colnames(39): B011-AP0C1W3 B011-AP0C1W8 ... FSQEAZ0C2D3-02 FSQFAZ0BZJQ-02
+## colData names(194): Sample well_id ... alteredTime alteredTime_sq
+```
+
+Finally, ChAI can accept new data, like olink, manually. Let's load in the olink data and metadata, before packaging it # up into a ChAI SummarizedExperiment for modeling. 
+
+
+
+```r
+olinkMat <- read.csv('olink_covid_olink.csv',row.names =1)
+olinkMeta <-  read.csv('olink_covid_olink_metadata.csv')
+
+# Align the column names of the data frame to the rownames of the meta data frame. 
+olinkMeta$Sample <- paste('X', olinkMeta$patientID_Visit,sep ='')
+olinkSE <- importGeneralModality(olinkMat, olinkMeta, 'Sample')
+olinkSE
+```
+
+```
+## class: SummarizedExperiment 
+## dim: 1463 71 
+## metadata(2): Type History
+## assays(1): General
+## rownames(1463): AARSD1 ABHD14B ... ZBTB16 ZBTB17
+## rowData names(0):
+## colnames(71): X11003_1 X11004_1 ... X32255_2 X32255_3
+## colData names(13): X patientID_Visit ... olink_sample_id Sample
+```
+
+
+Ok - so we've loaded in all four data types. We could load in more, like cell counts, antibody titers, etc.. 
+if we desired, but we'll stop here. 
+
+
+## Determining model formula
+
+Before we conduct high-throughput modeling, we need to evaluate what model formula to use, based on what will fit most of the features well. 
+
+
+This evaluation occurs via a family of 'pilot modeling' functions, which allows us to test the formula on a small subset of features. By analyzing model performance across features, we can identify the formula that will most consistently model the data. 
+Pilot modeling functions including pilot_scRNA, pilot_scATAC, pilot_ChromVAR, and pilot_General. 
+Similar functions exist for testing out formulas related to modeling associations between data types. This includes pilot_GeneTile, pilot_scATAC_Associations, pilot_scRNA_Associations, pilot_ChromVAR_Associations, and pilot_General_Associations.
+
+For this test case, we will show how to pilot_scATAC. The other pilot functions can be used with identical workflows. 
+
+As for the formula type, ChAI can wraps glmmTMB, and can work with any formula that glmmTMB could, including fixed effects, random effects, interactions, etc.. 
+
+let's test out a formula. scATAC is zero-inflated, so we need to model both zero inflation and continuious data.
+For the other model types, there is no zero-inflated formula.
+Additionally, some tiles are more zero-inflated then others, and modeling zero-inflation when there's only a couple
+samples with zeros can break a model. To avoid this, you can change the zi_threshold, which determines the minimum 
+percentage of samples with zeros before zero-inflated modeling occurs. 
+For example, if you set it to 0.1, then the zeroes will only be modeled with more than 10% of samples are empty. 
+When less than 10% of samples are empty, those samples are removed, and the remaining 90% of samples are 
+modeled using the continuous formula only.
+
+
+
+```r
+p1 <- pilot_scATAC(atacSE = atacSE,  cellPopulation = 'CD16 Mono', 
+                   continuousFormula = exp ~ Age + Sex + COVID_status,
+                   ziFormula = ~ 0 + FragNumber + COVID_status,
+                   zi_threshold = 0, 
+                   numCores = 15,
+                   featureSample = 50,
+                   verbose = TRUE)
+```
+
+```
+## Modeling results.
+```
+
+```r
+head(p1)
+```
+
+```
+## $`chrX:15882500-15882999`
+## Formula:          exp ~ Age + Sex + COVID_status
+## Zero inflation:       ~0 + FragNumber + COVID_status
+## Data: df
+##       AIC       BIC    logLik  df.resid 
+##  80.23607  93.54456 -32.11804        35 
+## 
+## Number of obs: 39
+## 
+## Dispersion estimate for gaussian family (sigma^2): 0.507 
+## 
+## Fixed Effects:
+## 
+## Conditional model:
+##          (Intercept)                   Age               SexMale  COVID_statusPositive  
+##             9.236466             -0.003328             -0.008912              0.372082  
+## 
+## Zero-inflation model:
+##           FragNumber  COVID_statusNegative  COVID_statusPositive  
+##               -5.152                33.032                31.734  
+## 
+## $`chr11:69053500-69053999`
+## Formula:          exp ~ Age + Sex + COVID_status
+## Zero inflation:       ~0 + FragNumber + COVID_status
+## Data: df
+##       AIC       BIC    logLik  df.resid 
+##  70.49096  83.79945 -27.24548        35 
+## 
+## Number of obs: 39
+## 
+## Dispersion estimate for gaussian family (sigma^2): 0.48 
+## 
+## Fixed Effects:
+## 
+## Conditional model:
+##          (Intercept)                   Age               SexMale  COVID_statusPositive  
+##             10.49975              -0.02728               0.09861              -1.01022  
+## 
+## Zero-inflation model:
+##           FragNumber  COVID_statusNegative  COVID_statusPositive  
+##               -3.334                20.917                23.410  
+## 
+## $`chr12:52040000-52040499`
+## Formula:          exp ~ Age + Sex + COVID_status
+## Zero inflation:       ~0 + FragNumber + COVID_status
+## Data: df
+##       AIC       BIC    logLik  df.resid 
+##  90.61572 103.92421 -37.30786        35 
+## 
+## Number of obs: 39
+## 
+## Dispersion estimate for gaussian family (sigma^2): 0.737 
+## 
+## Fixed Effects:
+## 
+## Conditional model:
+##          (Intercept)                   Age               SexMale  COVID_statusPositive  
+##             11.50926              -0.02729              -0.67852               0.05319  
+## 
+## Zero-inflation model:
+##           FragNumber  COVID_statusNegative  COVID_statusPositive  
+##               -2.666                17.006                17.342  
+## 
+## $`chr19:10115500-10115999`
+## Formula:          exp ~ Age + Sex + COVID_status
+## Zero inflation:       ~0 + FragNumber + COVID_status
+## Data: df
+##       AIC       BIC    logLik  df.resid 
+## 107.15963 120.46813 -45.57982        35 
+## 
+## Number of obs: 39
+## 
+## Dispersion estimate for gaussian family (sigma^2): 0.585 
+## 
+## Fixed Effects:
+## 
+## Conditional model:
+##          (Intercept)                   Age               SexMale  COVID_statusPositive  
+##             9.910502             -0.004868              0.027210             -0.174553  
+## 
+## Zero-inflation model:
+##           FragNumber  COVID_statusNegative  COVID_statusPositive  
+##               -2.425                15.302                14.625  
+## 
+## $`chr6:7258000-7258499`
+## Formula:          exp ~ Age + Sex + COVID_status
+## Zero inflation:       ~0 + FragNumber + COVID_status
+## Data: df
+##       AIC       BIC    logLik  df.resid 
+##  82.79387  96.10237 -33.39694        35 
+## 
+## Number of obs: 39
+## 
+## Dispersion estimate for gaussian family (sigma^2): 1.28 
+## 
+## Fixed Effects:
+## 
+## Conditional model:
+##          (Intercept)                   Age               SexMale  COVID_statusPositive  
+##             9.175272              0.003035             -0.211340             -0.193248  
+## 
+## Zero-inflation model:
+##           FragNumber  COVID_statusNegative  COVID_statusPositive  
+##               -5.824                36.317                37.302  
+## 
+## $`chr10:15848500-15848999`
+## Formula:          exp ~ Age + Sex + COVID_status
+## Zero inflation:       ~0 + FragNumber + COVID_status
+## Data: df
+##       AIC       BIC    logLik  df.resid 
+##  92.39318 105.70167 -38.19659        35 
+## 
+## Number of obs: 39
+## 
+## Dispersion estimate for gaussian family (sigma^2): 1.14 
+## 
+## Fixed Effects:
+## 
+## Conditional model:
+##          (Intercept)                   Age               SexMale  COVID_statusPositive  
+##             12.05360              -0.02142              -1.09755              -0.29167  
+## 
+## Zero-inflation model:
+##           FragNumber  COVID_statusNegative  COVID_statusPositive  
+##               -3.382                21.690                21.345
+```
+
+Let's see how many tiles were successfully modeled. 
+
+
+
+```r
+getConvergenceRate(p1) 
+```
+
+```
+## Convergence Rate: 92%
+```
+
+
+Can we do better?
+
+
+
+```r
+p2 <- pilot_scATAC(atacSE = atacSE,  cellPopulation = 'CD16 Mono', 
+                   continuousFormula = exp ~ Age + Sex + COVID_status,
+                   ziFormula = ~ 0 + FragNumber,
+                   zi_threshold = 0, 
+                   numCores = 15,
+                   featureSample = names(p1),
+                   verbose = TRUE)
+```
+
+```
+## Modeling results.
+```
+
+```r
+getConvergenceRate(p2) 
+```
+
+```
+## Convergence Rate: 100%
+```
+
+
+Zero-inflated modeling of COVID_status has a large impact. Results in failure for 21% of tested tiles. 
+
+Alternatively, we can increase zi_threshold. 
+
+
+
+```r
+p3 <- pilot_scATAC(atacSE = atacSE, cellPopulation = 'CD16 Mono', 
+                   continuousFormula = exp ~ Age + Sex + COVID_status,
+                   ziFormula = ~ 0 + FragNumber + COVID_status,
+                   zi_threshold = 0.25, 
+                   numCores = 15,
+                   featureSample = names(p1),
+                   verbose = TRUE)
+```
+
+```
+## Modeling results.
+```
+
+```r
+getConvergenceRate(p3) 
+```
+
+```
+## Convergence Rate: 68%
+```
+
+Convergence rates for other data types is generally 100%. scATAC is just complicated, and sparsity prevents some models from converging, even with zero inflation. 
+Given the above results, it looks like the second model is ideal. 
+
+
+## scATAC-seq Modeling: 
+Now that we've settled on a formula, we can use model_scATAC to efficiently test all 244,000 tiles in roughly 1.5 hours on 30 cores on Google cloud.
+
+For smaller machines, you can expect run time to increase. In this case, we will use 15 cores on a laptop (Lenovo T14s Thinkpad) and see how long it takes to run. 
+
+
+
+```r
+time1 <- Sys.time()
+atacModel <- model_scATAC(atacSE = atacSE, 
+                          cellPopulation = 'CD16 Mono', 
+                          continuousFormula = exp ~ Age + Sex + COVID_status,
+                          ziFormula = ~ 0 + FragNumber,
+                          zi_threshold = 0, 
+                          numCores = 15,
+                          verbose = TRUE)
+```
+
+```
+## Running a quick test.
+```
+
+```
+## Sampling data. Identifying null template.
+```
+
+```
+## Modeling results.
+```
+
+```
+## Reorganizing residuals and random effect variance.
+```
+
+```r
+print(Sys.time() - time1)
+```
+
+```
+## Time difference of 2.5248 hours
+```
+
+That's 2.5 hours for 244,091 features using 15 cores from a laptop with a AMD Ryzen 7 PRO 585U (with Radeon Graphics). I have seen faster performance per core in cloud compute environments, but this is decent. 
+
+
+The model output is a SummarizedExperiment, which saves all the information on the model estimates and other statistics. 
+Each model factor has it's own assay within the SummarizedExperiments, and 
+the type of model, along with the residuals, random effect variance (if any), are saved in the metadata slot.
+This format is generalizable across all model outputs, so that code can be easily reused, regardless of the data type.
+
+Let's now pull out all the tiles with significant coefficients for COVID_status. 
+
+
+```r
+sigTiles <- getEstimates(atacModel, factor = 'COVID_statusPositive', FDR_threshold = 0.1, 
+                         filterFactors = 'ZI_FragNumber', backgroundThreshold = 0.1)
+head(sigTiles)
+```
+
+```
+##                            Estimate Std_Error   z_value      p_value          FDR                    Tiles
+## chr1:100896000-100896499  0.4371099 0.1294506  3.376654 7.337334e-04 7.282588e-02 chr1:100896000-100896499
+## chr1:10208500-10208999   -0.4191102 0.1278549 -3.278014 1.045403e-03 8.750118e-02   chr1:10208500-10208999
+## chr1:1038500-1038999      1.3747669 0.3391639  4.053400 5.047851e-05 1.666125e-02     chr1:1038500-1038999
+## chr1:10474500-10474999    0.6073337 0.1695428  3.582186 3.407313e-04 4.820815e-02   chr1:10474500-10474999
+## chr1:1059500-1059999      0.6560421 0.1759745  3.728052 1.929654e-04 3.548003e-02     chr1:1059500-1059999
+## chr1:1064000-1064499      1.2346622 0.1924278  6.416235 1.396857e-10 1.481391e-06     chr1:1064000-1064499
+```
+
+```r
+saveRDS(atacModel, 'scATAC_ChAI_Model.rds')
+```
+
+We can repeat this with other data types, like olink, scRNA, or more
+Usually, I find that after figuring out the formula on one modality, 
+it generalizes well to other data types, as long as you include any relevant technical 
+influences like FragNumber or cell counts. 
+
+## Modeling scRNA-seq
+We can repeat this with other data types, like olink, scRNA, or more
+Usually, I find that after figuring out the formula on one modality, 
+it generalizes well to other data types, as long as you include any relevant technical 
+influences like FragNumber or cell counts. 
+
+For scRNA, makePseudobulkRNA will accept a Seurat object and convert it into a normalized ChAI scRNA object. 
+See documentation on makePseodulkRNA() for more details. 
+
+
+```r
+rnaSE$Status = factor(rnaSE$Status, levels = c('Healthy', 'Covid'))
+time1 <- Sys.time()
+rnaModel <- model_scRNA(rnaSE = rnaSE, 
+                        cellPopulation = 'CD16 Mono', 
+                        modelFormula = exp ~ Age + Sex + Status,
+                        numCores = 15,
+                        verbose = TRUE)
+```
+
+```
+## 11575 genes will be modeled
+```
+
+```
+## Running a quick test.
+```
+
+```
+## Sampling data. Identifying null template.
+```
+
+```
+## Modeling results.
+```
+
+```
+## Reorganizing residuals and random effect variance.
+```
+
+```r
+print(Sys.time() - time1)
+```
+
+```
+## Time difference of 7.041177 mins
+```
+
+Great! That's 7 mins for 11.5k genes, or 1.6k genes per minutes, on a standard laptop. 
+
+Let's get the significant genes and save the model for later. 
+
+
+```r
+saveRDS(rnaModel, 'scRNA_ChAI_Model.rds')
+sigGenes <- getEstimates(rnaModel , factor = 'StatusCovid', FDR_threshold = 0.1)
+dim(sigGenes)
+```
+
+```
+## [1] 3204    6
+```
+
+
+## ChromVAR Z-scores Modeling
+
+For ChromVAR, makeChromVAR() will accept a MOCHA scATAC object and convert it into a ChromVAR ChAI object. 
+See documentation on makeChromVAR() for more details. This step takes quite some time, so we won't run it here. 
+
+For bulk ChromVAR workflows, you can extract the ChromVAR matrix and use importGeneralModality to create a ChAI object for modeling. 
+makeChromVAR() allows us to track scATAC-seq features, like the number of fragments, across all populations, which can be controled for in the model.
+Additionally, the resulting ChromVAR ChAI object mimics the format of a MOCHA object, or ChAI scRNA object, with a seperate assay for each cell type.
+
+Sometimes, the cell names may not be aligned. In this case, we need to use ChAI to rename the 'CD16_Mono' to 'CD16 Mono', so that the name 
+aligns with the MOCHA object and ChAI scRNA objects downstream. This will help with integration between modalities. 
+
+After renaming, we will model ChromVAR Z-score changes. 
+
+
+
+```r
+chromSE <- renameCellTypes(chromSE, 'CD16_Mono', 'CD16 Mono')
+time1 <- Sys.time()
+chromModel <- model_chromVAR(chromSE = chromSE, 
+                             cellPopulation = 'CD16 Mono', 
+                             modelFormula = exp ~ Age + Sex + COVID_status + FragNumber,
+                             numCores = 15,
+                             verbose = TRUE)
+```
+
+```
+## Running a quick test.
+```
+
+```
+## Sampling data. Identifying null template.
+```
+
+```
+## Modeling results.
+```
+
+```
+## Reorganizing residuals and random effect variance.
+```
+
+```r
+print(Sys.time() - time1)
+```
+
+```
+## Time difference of 45.45216 secs
+```
+
+45.5 seconds for 870 features (1.1k features per minute) using 15 cores on a Lenovo laptop (AMD Ryzen 7 PRO 585U with Radeon Graphics)
+
+
+```r
+saveRDS(chromModel,'Chrom_ChAI_Model.rds')
+
+sigTFs <- getEstimates(chromModel, factor = 'COVID_statusPositive', FDR_threshold = 0.1)
+head(sigTFs)
+```
+
+```
+##          Estimate Std_Error   z_value      p_value         FDR    TFs
+## ARID3A  1.7515897 0.4803170  3.646737 0.0002655917 0.002924871 ARID3A
+## ARID3B  0.8239494 0.2809759  2.932456 0.0033629242 0.018754770 ARID3B
+## ARID3C  0.7267194 0.3252921  2.234052 0.0254796696 0.093041873 ARID3C
+## ARID2  -0.7312006 0.2857150 -2.559196 0.0104914606 0.044742994  ARID2
+## HMGA1   0.9785208 0.4447997  2.199913 0.0278130390 0.098625721  HMGA1
+## SREBF1  0.8802773 0.2572158  3.422330 0.0006208686 0.005456118 SREBF1
+```
+
+
+
+## Modeling bulk Proteomics data (general modeling)
+
+For the Olink data, we need to generate a ChAI Object, and then subset it down to just the first visit. 
+This can be done with a subset function.
+
+
+
+```r
+subOlink <- subsetChAI(olinkSE, subsetBy = 'Visit', groupList = "Visit 1")
+subOlink$Status = factor(subOlink$Status, levels = c('Healthy', 'Covid'))
+##Track time for 11,00
+time1 <- Sys.time()
+proteinModel <- model_General(ExperimentObj = subOlink, 
+                              assayName = 'General', 
+                              modelFormula = exp ~ Age + Sex + Status,
+                              ziFormula = ~ 0,
+                              family = stats::gaussian(),
+                              numCores = 15,
+                              verbose = TRUE)
+```
+
+```
+## Running a quick test.
+```
+
+```
+## Sampling data. Identifying null template.
+```
+
+```
+## Modeling results.
+```
+
+```
+## Reorganizing residuals and random effect variance.
+```
+
+```r
+print(Sys.time() - time1)
+```
+
+```
+## Time difference of 1.104651 mins
+```
+
+
+
+```r
+saveRDS(proteinModel, 'Olink_ChAI_Model.rds')
+
+sigProtein <- getEstimates(proteinModel  , factor = 'StatusCovid', FDR_threshold = 0.1)
+head(sigProtein)
+```
+
+```
+##          Estimate  Std_Error  z_value      p_value          FDR Measurement
+## ABHD14B 0.5542578 0.20656057 2.683270 7.290606e-03 0.0270714625     ABHD14B
+## ABL1    0.8019589 0.16745723 4.789037 1.675833e-06 0.0000500356        ABL1
+## ACP5    0.2282731 0.09236649 2.471384 1.345912e-02 0.0449559051        ACP5
+## ADA     0.4082991 0.12654964 3.226395 1.253604e-03 0.0070811691         ADA
+## ADA2    0.3059226 0.14515703 2.107529 3.507177e-02 0.0926682733        ADA2
+## ADAM8   0.3295525 0.12948000 2.545200 1.092152e-02 0.0378130629       ADAM8
+```
+
+
+
+## Visualization of Model Predictions
+
+So let's pull out an interesting protein and look at the actually data vs the model predictions. 
+
+
+```r
+IFNL_mat <- modelPredictions(dataObject = subOlink, assay1  ='General', measurement ='IFNL1',
+                             modelObject =   proteinModel, specVariable = 'StatusCovid', 
+                             adjust = TRUE)
+head(IFNL_mat)
+```
+
+```
+##                  exp1 orig_exp1 Prediction X patientID_Visit patientID  Status Age    Sex days_symptom_onset draw_date   Visit Batch pbmc_sample_id
+## X11003_1 -1.011238343   -0.3607 -0.4777133 1         11003_1     11003 Healthy  45   male                n/a     43944 Visit 1  B011 FSQDAZ0BCXZ-01
+## X11004_1 -0.006510664    0.2614 -0.4777133 2         11004_1     11004 Healthy  32 female                n/a     43941 Visit 1  B021 FSQDAZ0BC7W-01
+## X11012_1 -0.971927427   -0.4386 -0.4777133 3         11012_1     11012 Healthy  31   male                n/a     43943 Visit 1  B011 FSQKAZ0BCHN-05
+## X11032_1 -0.415094039   -0.1723 -0.4777133 4         11032_1     11032 Healthy  29 female                n/a     43943 Visit 1  B033 FSQEAZ0BCPQ-03
+## X11058_1 -0.386971705   -0.0772 -0.4777133 5         11058_1     11058 Healthy  37 female                n/a     43943 Visit 1  B021 FSQKAZ0BCNW-01
+## X11075_1 -0.916493926   -0.2827 -0.4777133 6         11075_1     11075 Healthy  43   male                n/a     43951 Visit 1  B024 FSQDAZ0BF8C-01
+##          olink_sample_id   Sample Sexmale StatusCovid
+## X11003_1  FSQKAZ0BCY0-04 X11003_1    TRUE       FALSE
+## X11004_1  FSQEAZ0BC75-04 X11004_1   FALSE       FALSE
+## X11012_1  FSQAAZ0BCHP-04 X11012_1    TRUE       FALSE
+## X11032_1  FSQHAZ0BCPR-11 X11032_1   FALSE       FALSE
+## X11058_1  FSQCAZ0BCN2-04 X11058_1   FALSE       FALSE
+## X11075_1  FSQAAZ0BF8D-03 X11075_1    TRUE       FALSE
+```
+
+```r
+ggplot(data =IFNL_mat) + geom_boxplot( aes(x = Status, y = exp1, color = Status), alpha = 0.75) +
+  geom_jitter( aes(x = Status, y = exp1, color = Status)) +
+  geom_point( aes(x = Status, y = Prediction,  size = 10)) + theme_bw() + xlab(NULL) + 
+  ylab('IFNL1 in Serum, Adjusted for Age & Sex') + theme(legend.position = 'none')
+```
+
+![plot of chunk unnamed-chunk-18](figure/unnamed-chunk-18-1.png)
+
+```r
+IFNL_mat <- modelPredictions(dataObject = subOlink, assay1  ='General', measurement ='IFNL1',
+                             modelObject =   proteinModel, specVariable = 'StatusCovid', 
+                             adjust = FALSE) 
+                             
+ggplot(data =IFNL_mat) + geom_boxplot( aes(x = Status, y = exp1, color = Status), alpha = 0.75) +
+  geom_jitter( aes(x = Status, y = exp1, color = Status)) +
+  geom_point( aes(x = Status, y = Prediction, size = 10)) + theme_bw() +
+  xlab(NULL) + ylab('IFNL1 in Serum') + theme(legend.position = 'none')
+```
+
+![plot of chunk unnamed-chunk-18](figure/unnamed-chunk-18-2.png)
+

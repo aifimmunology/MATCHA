@@ -2,7 +2,7 @@
 % Please edit documentation in R/dimensionalityReduction.R
 \name{bulkUMAP}
 \alias{bulkUMAP}
-\title{Generate UMAP from pseudobulk LSI results}
+\title{\code{bulkUMAP}}
 \usage{
 bulkUMAP(
   SEObj,
@@ -10,13 +10,12 @@ bulkUMAP(
   components = c(1:30),
   nNeighbors = 15,
   returnModel = FALSE,
-  verbose = TRUE,
   seed = 1,
   ...
 )
 }
 \arguments{
-\item{SEObj}{The SummarizedExperiment object output from bulkDimReduction, or an STM, subset to just one cell type.}
+\item{SEObj}{The SummarizedExperiment object output from bulkDimReduction, or an STM, subsetted down to just one cell type.}
 
 \item{assay}{A string, describing the name of the assay within SEObj to run UMAP ('PCA', 'LSI', or 'counts').}
 
@@ -27,8 +26,6 @@ neighboring sample points) used for manifold approximation. Default is 15.}
 
 \item{returnModel}{A boolean. Default is FALSE. If set to true, it will return a list, where the first is the UMAP coordinates with metadata for plotting, and the second is the full UMAP model so further projection can occur.}
 
-\item{verbose}{Set TRUE to display additional messages. Default is FALSE.}
-
 \item{seed}{an integer. Represents the random seed to pass to the UMAP. Default seed is 1.}
 
 \item{...}{Additional arguments to be passed to \link[uwot]{umap}.}
@@ -37,11 +34,11 @@ neighboring sample points) used for manifold approximation. Default is 15.}
 fullUMAP data.frame of UMAP values with metadata attached.
 }
 \description{
-\code{bulkUMAP} generates UMAP from pseudobulk LSIObj object from \link[MOCHA]{bulkDimReduction}
+\code{bulkUMAP} generates UMAP from pseudobulk LSIObj object, and merges in metadata.
 }
 \examples{
 \dontrun{
 UMAPvalues <- MOCHA::bulkUMAP(LSIObj)
 }
 }
-\keyword{downstream}
+\keyword{data_object_manipulation}
