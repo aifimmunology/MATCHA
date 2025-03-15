@@ -14,7 +14,6 @@ General_Associations(
   ziFormula = ~0,
   sig1,
   sig2,
-  allCombinations = TRUE,
   family = stats::gaussian(),
   initialSampling = 5,
   numCores
@@ -34,13 +33,11 @@ Must be the same from SE1 and SE2. This is used for aligning SE1 and SE2}
 
 \item{modelFormula}{: Formula used for modeling. Must be in the form exp1 ~ exp2 + other factors + (1|RandomEffect)}
 
-\item{ziFormula}{Zi Formula to test for zero-inflation within generalSE}
+\item{ziFormula}{list of  to tests from atacSE to test.}
 
 \item{sig1}{A list of rows from SE1 to test.}
 
 \item{sig2}{A list of rows from SE2 to test.}
-
-\item{allCombinations}{A boolean, whether to test all possible pair-wise combinations of  sig1 and  sig2. Default is TRUE. If False, it will require sig1 and sig2 to be the same length, and only test index-matched pairs (i.e. sig1[2] vs  sig2[2] )}
 
 \item{family}{distribution family parameter, passed to glmmTMB to describe the data's distribution.
 Default is normal (gaussian()). See  \link[glmmTMB]{glmmTMB}.}
@@ -50,11 +47,7 @@ Default is normal (gaussian()). See  \link[glmmTMB]{glmmTMB}.}
 \item{numCores}{Optional, the number of cores to use with multiprocessing. Default is 1.}
 }
 \value{
-results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
-         including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
-         the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
-         Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-         The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
+A summarized experiment summarizing the output.
 }
 \description{
 \code{General_Associations} High-throughput zero-inlfated GLMM-based modeling for associating features between two ChAI General data objects.

@@ -9,7 +9,6 @@
 #' @param modelObject a SummarizedOutput object from modelPredict  
 #' @param adjust A boolean, default to TRUE. Determines whether to generate an column with an adjusted measurement. The measurement will be adjusted for all factors that are not the specVariable within the model.
 #' @param ignoreVariable Default is NULL. use this to specific whether there are any variables that you do not want to adjust for. 
-#' @param outputDF A boolean, determines whether or not to output a data.frame with an additional column for each measurement, or a SummarizedExperiment. Only comes into play if multiple measurements are given. 
 #' @return A summarized experiment where each assay is the data.frame of metadata, original measurement, predicted measurement, and adjusted measurement (option) for each measurement provided. 
 #'
 #'
@@ -17,20 +16,15 @@
 #' @keywords model_results
 #'
 
-modelPredictions <- function(dataObject, assay1, measurement, specVariable, modelObject, adjust = TRUE, ignoreVariable = NULL, outputDF = TRUE){
+modelPredictions <- function(dataObject, assay1, measurement, specVariable, modelObject, adjust = TRUE, ignoreVariable = NULL){
     
     ## Make sure the dataObject is a ChAIObject and then combine so that sample metadata can be pulled out. 
     
     data_type = isChAIObject(dataObject, type = 'data', returnType = TRUE)
     model_type = isChAIObject(modelObject, type = 'model', returnType = TRUE)
+    
     logLink <- model_type == 'scRNA_Model'
 
-    if(methods::is(modelObject, 'list') & all(assay1 %in% names(modelObject))){
-
-        if(length(assay1) > 1){ stop('assay1 cannot be list. Please provide a single strong')}
-        modelObject = modelObject[[assay1]]
-
-    }
     
      ##Check data type to make sure dataObject and modelObject match
    if(model_type == 'scRNA_Model' & data_type != 'scRNA'){
@@ -58,24 +52,10 @@ modelPredictions <- function(dataObject, assay1, measurement, specVariable, mode
      stop(stringr::str_interp('measurement ${measurement} not found within dataObject. Please read documentation.'))
     }
 
-    ## specificVariable
-    if(length(specVariable) > 1){
-        stop('specVariable must a single string')
-    }      
-    ## specifi
-    if(!all(specVariable %in% colnames(SummarizedExperiment::colData(dataObject)))){
-        stop(stringr::str_interp('One or all of the specVariable(s) ${specVariable} not found within the dataObject. Please read documentation.'))
-    }else if(!all(specVariable %in% SummarizedExperiment::assayNames(modelObject))){
-        ## specVariable appears to be a categorical variable. Figure out if it is, and then adapt to which options we want to visualize.
-        ## look at all combinations of the specificVariable. 
-        specList = paste(specVariable,unique(SummarizedExperiment::colData(dataObject)[,specVariable]), sep ='')
-        specList = intersect(specList, SummarizedExperiment::assayNames(modelObject))
-        if(length(specList) > 0){
-            specVariable = specList
-        }else{
-            stop(stringr::str_interp('specVariable ${specVariable} was found as as a potentially categorical column in the metadata of the dataObject, but we could not align any categorical variables within it with the variables in the modelObject. Please ensure the specVariable is correct.'))
-        }
+    if(!all(specVariable %in% getModelFactors(modelObject))){
+     stop(stringr::str_interp('One or all of the specVariable(s) ${specVariable} not found within dataObject. Please read documentation.'))
     }
+        
         
     ## Extract data and transform it. 
     if(data_type %in% c('scRNA', 'ChromVAR')){
@@ -110,12 +90,6 @@ modelPredictions <- function(dataObject, assay1, measurement, specVariable, mode
     allVariables <- names(assayList)[!grepl('ZI_|Intercept',names(assayList))]
     numericVariables <- names(assayList)[names(assayList) %in% colnames(metaData)]
     remainingVariables <- allVariables[!allVariables %in% numericVariables]
-    if(any(grepl(":", remainingVariables))){
-        
-        warning(stringr::str_interp('Interaction term ${grep(":", remainingVariables, value = TRUE)} will be ignored.'))
-        remainingVariables <- grep(":", remainingVariables, value = TRUE, invert = TRUE)
-        allVariables <- grep(":", allVariables, value = TRUE, invert = TRUE)
-    }
 
     ## Log transform the FragmentNumbers so as to stabilize the model. But only if FragNumber is in the model. Same for CellCounts.
     if(any(colnames(metaData ) %in% c('FragNumber'))){
@@ -146,7 +120,7 @@ modelPredictions <- function(dataObject, assay1, measurement, specVariable, mode
 
     }
 
-    subMeta <- metaData[, colnames(metaData) %in% allVariables, drop = FALSE]
+    subMeta <- metaData[, colnames(metaData) %in% allVariables]
     if(any(is.na(subMeta))){
 
         stop('Metadata in dataObject is NA. dataObject is likely not the object used for modeling. Please provide the object used for modeling.')
@@ -160,10 +134,9 @@ modelPredictions <- function(dataObject, assay1, measurement, specVariable, mode
         newData <- data.frame('exp1' =  unlist(mat1[measurement[[x]],]))
 
         rownames(newData) = colnames(mat1)
-        adjustVariables <- allVariables[! allVariables %in% c(specVariable, ignoreVariable)]
-        if(adjust & length(adjustVariables) > 0){
+        if(adjust){
             newData$orig_exp1 = newData$exp1
-            
+            adjustVariables <- allVariables[! allVariables %in% c(specVariable, ignoreVariable)]
             # Use a dot product to find the model X metadata output. 
             allAdjusts = as.matrix(subMeta[,adjustVariables] ) %*% as.matrix(modelVals[adjustVariables,,drop=FALSE])
             predictVariables <- as.matrix(subMeta[, specVariable, drop = FALSE]) %*% 
@@ -196,26 +169,18 @@ modelPredictions <- function(dataObject, assay1, measurement, specVariable, mode
             }  
         
         }else{
+    
+            allAdjusts = do.call('cbind',lapply(allVariables[! allVariables %in% c(specVariable, ignoreVariable)], function(x){
 
-            #If there are variables in the model:
-            if(length(adjustVariables) > 0){
-                allAdjusts = do.call('cbind',lapply(allVariables[!allVariables %in% c(specVariable)], function(x){
-    
-                                as.data.frame( modelVals[x,]*as.numeric(subMeta[,x]))
-    
-                                }))
-                allAdjusts = sum(colMeans(allAdjusts))
-    
-            }else{
-                allAdjusts = 0
-            }
-            
+                            as.data.frame( modelVals[x,]*as.numeric(subMeta[,x]))
+
+                            }))
             predictVariables <- as.matrix(subMeta[, specVariable, drop = FALSE]) %*% as.matrix(modelVals[specVariable, , drop = FALSE])
 
             if(any(grepl('Intercept', rownames(modelVals)))){
-                newData$Prediction = modelVals[grepl('Intercept', rownames(modelVals)),]  + unlist(as.list(predictVariables)) + allAdjusts
+                newData$Prediction = modelVals[grepl('Intercept', rownames(modelVals)),]  + unlist(as.list(predictVariables)) + sum(colMeans(allAdjusts))
             }else{
-                newData$Prediction = unlist(as.list(predictVariables)) + allAdjusts
+                newData$Prediction = unlist(as.list(predictVariables)) + sum(colMeans(allAdjusts))
             }
         
                 
@@ -229,7 +194,7 @@ modelPredictions <- function(dataObject, assay1, measurement, specVariable, mode
                 newData$Prediction[newData$exp1 ==0] = NA
             } 
             
-        }
+        } 
 
         newData <- cbind(newData, metaData)
         newData
@@ -239,20 +204,9 @@ modelPredictions <- function(dataObject, assay1, measurement, specVariable, mode
     names(allEstimates) = measurement
                                 
     if(length(measurement) == 1){
-        allEstimates =allEstimates[[1]]
-        allEstimates$Measurement = measurement
-        allEstimates$Assay = assay1
-        return(allEstimates)
+    
+        return(allEstimates[[1]])
         
-    }else if(outputDF){
-
-        allEstimates = do.call('rbind', lapply(seq_along(allEstimates), function(XX){
-                            allEstimates[[XX]]$Measurement = measurement[[XX]]
-                            allEstimates[[XX]]$Assay = assay1
-                            allEstimates[[XX]]
-                        }))
-        return(allEstimates)
-
     }
     exp = SummarizedExperiment::SummarizedExperiment(allEstimates, metadata = SummarizedExperiment::rowData(dataObject[measurement,]))
    
@@ -354,7 +308,7 @@ getModelValues <- function(modelSE, rowName){
 #' @title Get residuals from a given model object
 #'
 #' @description \code{getResiduals} Takes a model object and returns a SummarizedExperiment containing the residuals for each sample with associated metadata. Useful for modeling residuals.
-#' @param modelSE A model object output from any ChAI modeling function (whether on a single modality or the association between two modalities)
+#' @param modelObj A model object output from any ChAI modeling function (whether on a single modality or the association between two modalities)
 #' @return A SummarizedExperiment object. 
 #'
 #'
@@ -369,38 +323,7 @@ getModelValues <- function(modelSE, rowName){
 #'
 
 getResiduals <- function(modelSE){
-    model_type = isChAIObject(modelSE, type = 'model')
-    residDF <- modelSE@metadata$Residuals
+
+    resids <- modelSE@metadata$Residuals
     return(residDF)
 }
-
-
-#' @title Get variance decomposition from a model with only random effects
-#'
-#' @description \code{getVarDecomp} Takes a model object with only random effects and returns variance decomposition results
-#' @param modelSE A model object output from any ChAI modeling function (whether on a single modality or the association between two modalities)
-#' @return A SummarizedExperiment object. 
-#'
-#'
-#'
-#' @examples
-#' \dontrun{
-#'   getVarDecomp(modelSE)
-#' }
-#'
-#' @export
-#' @keywords model_results
-#'
-
-getVarDecomp <- function(modelSE) {
-
-    model_type = isChAIObject(modelSE, type = 'model')
-    varDF= modelSE@metadata$RandomEffectVariance
-    varDF = as.data.frame(varDF/rowSums(varDF))
-    varDF$Features = rownames(varDF)
-    
-    return(varDF)
-                               
-}
-
-    

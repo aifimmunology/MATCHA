@@ -16,7 +16,7 @@ pilot_scRNA_Associations(
   family = "negativeBinomial2",
   geneList,
   generalList = NULL,
-  samplingNumber = 100,
+  samplingNumber = 5,
   numCores = 10
 )
 }
@@ -36,8 +36,6 @@ Must be the same from generalSE and rnaSE. This is used for aligning generalSE a
 exp1 is the dummy variable for gene expression and exp2 is the dummy variable for the rownames from generalSE.}
 
 \item{ziFormula}{A formula for zero inflation. By default, zero-inflated modeling is turned off by setting ziFormula = ~ 0}
-
-\item{cellCountThreshold}{The minimum number of cells in a given pseudobulk for the pseudobulk to be included in analysis. If fewer than this number of cells are found, then the sample will be dicarded The number of cells within the pseudobulked scRNA. Default is 10 cells.}
 
 \item{family}{String. Can be 'negativeBinomial1', 'negativeBinomial2', or 'poisson'. Default is "negativeBinomial2".}
 

@@ -9,8 +9,7 @@ getEstimates(
   factor = "exp2",
   FDR_threshold = 0.1,
   filterFactors = NULL,
-  backgroundThreshold = 0.1,
-  numCores = 1
+  backgroundThreshold = 0.1
 )
 }
 \arguments{
@@ -23,8 +22,6 @@ getEstimates(
 \item{filterFactors}{A optional list of strings, describing the factors you do not to select for. If a given measurement is below the backgroundThreshold for that factor, it will be removed.}
 
 \item{backgroundThreshold}{An optional background threshold that determines how stringently you want to remove measurements if they related to any of the filterFactors, based on their FDR. Standard threshold is 0.1}
-
-\item{numCores}{If there are multiple celltypes, then it will parallelize the pulling out of estimates across cell types.}
 }
 \value{
 data frame of coefficient values for a given factor, filtered by an FDR threshold and by the lack of relationship to other factors, if provided.

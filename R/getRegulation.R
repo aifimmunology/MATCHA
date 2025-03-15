@@ -509,9 +509,9 @@ getRegulation <- function(AssociationModelList,
                             
 #' @title \code{exportGeneTileLinks}
 #'
-#' @description \code{exportGeneTileLinks} takes GeneTile Model and exports the significant connections to a .bedpe format or returns a data.frame.  
+#' @description \code{exportGeneTileLinksn} takes GeneTile Model and exports the significant connections to a .bedpe format or returns a data.frame.  
 #' @param GeneTileAssociation A ChAI GeneTileAssociation model
-#' @param fileName The name of the file to be exported (should end in .bedpe if you want to view in IGV), if returnDF = FALSE
+#' @param filename The name of the file to be exported (should end in .bedpe if you want to view in IGV), if returnDF = FALSE
 #' @param returnDF Boolean. Determines whether to write to file or return a data.frame
 #' @param FDR_threshold A number between 0 and 1, used as a significance threshold for associations between genes and tiles.
 #' @param filterFactors A optional list of strings that describe various factors we want to remove as sources of noise. These factors should ideally represent a strong technical artifact of somekind (like sequencing depth or other). I
@@ -522,7 +522,7 @@ getRegulation <- function(AssociationModelList,
 #'
 #' @export
        
-exportGeneTileLinks <- function(GeneTileAssociation, fileName = NULL,
+exportGeneTileLinks <- function(GeneTileAssociation, fileName,
                                 returnDF = FALSE,
                                 FDR_threshold = 0.1,
                                 filterFactors = NULL, 
@@ -541,14 +541,10 @@ exportGeneTileLinks <- function(GeneTileAssociation, fileName = NULL,
           })
 
     
-        geneTile1 <- getEstimates(GeneTileAssociation, factor = 'exp2', 
-                                  FDR_threshold= FDR_threshold,
-                                 filterFactors = filterFactors, 
-                                  backgroundThreshold = backgroundThreshold)
-        geneTile2 <- getEstimates(GeneTileAssociation, factor = 'ZI_exp2', 
-                                  FDR_threshold= FDR_threshold,
-                                 filterFactors = filterFactors, 
-                                  backgroundThreshold = backgroundThreshold)
+        geneTile1 <- getEstimates(GeneTileAssociation, factor = 'exp2', FDR_threshold= FDR_threshold,
+                                 filterFactors = filterFactors, backgroundThreshold = backgroundThreshold)
+        geneTile2 <- getEstimates(GeneTileAssociation, factor = 'ZI_exp2', FDR_threshold= FDR_threshold,
+                                 filterFactors = filterFactors, backgroundThreshold = backgroundThreshold)
         if(any(dim(geneTile1) == 0) & any(dim(geneTile2) == 0)){
             warning('No significant Gene-Tile associations found')
             return(NULL)
@@ -564,15 +560,20 @@ exportGeneTileLinks <- function(GeneTileAssociation, fileName = NULL,
             allGeneTiles = rbind(geneTile1, geneTile2)
         }
 
+        
+    
+        
+    
         allRowData <- SummarizedExperiment::rowData(GeneTileAssociation)
     
         #Filter row data to just gene tiles of interest.
         allRowData <- allRowData[allGeneTiles$Obj,]
     
         allLinks = cbind(
-                    data.frame(chr = gsub(":.*", "", allRowData$Promoters),
+                    data.frame(chr1 = gsub(":.*", "", allRowData$Promoters),
                             start1 = gsub("-.*","", gsub(".*:", "", allRowData$Promoters)),
                             end1 = gsub(".*-", "", allRowData$Promoters),
+                            chr2 = gsub(":.*", "", allRowData$Obj1),
                             start2 = gsub("-.*","", gsub(".*:", "", allRowData$Obj1)),
                             end2 = gsub(".*-", "", allRowData$Obj1),
                             name = rownames(allRowData),
@@ -587,21 +588,19 @@ exportGeneTileLinks <- function(GeneTileAssociation, fileName = NULL,
         
             allLinks$tileType = allRowData$tileType
             allLinks$tileGene = allRowData$Gene
-        }        
+        }
+    
+        write.table(allLinks, fileName, 
+            quote = FALSE, row.names = FALSE, col.names = FALSE, sep ='\t')
     
         if(returnDF){
-            for(i in c('start1', 'end1', 'start2', 'end2')){
-
-                allLinks[,i] = as.numeric(allLinks[,i])
-
-            }
+        
             return(allLinks)
            
         }
-
-        utils::write.table(allLinks, fileName, 
-            quote = FALSE, row.names = FALSE, col.names = FALSE, sep ='\t')
+ 
 }
+    
                             
                    
 Obj1 <- Obj2 <- General <- TFs <- Type <- Genes <- Tiles <- FDR <- Estimate <- Feature <- FeatureName <- Type <- Number <- Class <- NULL

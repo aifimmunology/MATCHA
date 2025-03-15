@@ -74,30 +74,12 @@ pilot_GeneTile <- function(atacSE, rnaSE, cellPopulation, sampleColumn,
       
   }
 
-   #Check whether samples align.     
-  if(all(!atacSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn]) |
-            all(!rnaSE@colData[,sampleColumn] %in% atacSE@colData[,sampleColumn])){
-      stop(stringr::str_interp('samples names in ${sampleColumn} are not the same. Please ensure that sample names match in atacSE and rnaSE via ${sampleColumn}.'))
-  } else if(!all(rnaSE@colData[,sampleColumn] %in% atacSE@colData[,sampleColumn]) |
-      !all(atacSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn])) {
-       
-       partialMatch <- intersect(rnaSE@colData[,sampleColumn] , 
-                                 atacSE@colData[,sampleColumn])
- 
-      warning(stringr::str_interp('Some samples names in ${sampleColumn} are not the same between modalities. Non-matching names will be dropped'))
-      dropped = rnaSE@colData[,sampleColumn] %in% atacSE@colData[,sampleColumn]
-      generalDropped = atacSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn]
-      warning(stringr::str_interp(' ${sum(!dropped)} and ${sum(!generalDropped)} sampled dropped from rnaSE and atacSE, respectively'))
-
-      atacSE <- MOCHA::subsetMOCHAObject(atacSE, subsetBy = sampleColumn, 
-                              groupList = partialMatch)
-      rnaSE <-  subsetChAI(rnaSE, subsetBy = sampleColumn, 
-                              groupList = partialMatch)
-    }
-
- 
-  if(!all(atacSE@colData[,sampleColumn] == rnaSE@colData[,sampleColumn])){
-      message('Reordering rnaSE sample names to match atacSE.')
+  #Check whether samples align.     
+  if(!all(atacSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn]) |
+      !all(rnaSE@colData[,sampleColumn] %in% atacSE@colData[,sampleColumn])) {
+      stop(stringr::str_interp('samples names in ${sampleColumn} are not the same. Please ensure that sample names match in rnaSE and atacSE via ${sampleColumn}.'))
+  }else if(!all(atacSE@colData[,sampleColumn] == rnaSE@colData[,sampleColumn])){
+      warning('Reording rnaSE sample names to match atacSE.')
       rnaSE <- rnaSE[,match(atacSE@colData[,sampleColumn], rnaSE@colData[,sampleColumn])]
   }
 
@@ -375,6 +357,7 @@ pilot_scATAC_Associations <- function(atacSE, cellPopulation,
                                                   findCombo, List2 = tileList))
 
 
+
   parallel::stopCluster(cl)
   
   modelList <- .pilotAssociations(SE1 = newatacSE, SE2 = newGeneral,
@@ -410,7 +393,6 @@ pilot_scATAC_Associations <- function(atacSE, cellPopulation,
 #'          exp1 is the dummy variable for gene expression and exp2 is the dummy variable for the rownames from generalSE. 
 #' @param ziFormula A formula for zero inflation. By default, zero-inflated modeling is turned off by setting ziFormula = ~ 0
 #' @param family String. Can be 'negativeBinomial1', 'negativeBinomial2', or 'poisson'. Default is "negativeBinomial2". 
-#' @param cellCountThreshold The minimum number of cells in a given pseudobulk for the pseudobulk to be included in analysis. If fewer than this number of cells are found, then the sample will be dicarded The number of cells within the pseudobulked scRNA. Default is 10 cells. 
 #' @param geneList a list of genes from rnaSE to test. 
 #' @param generalList A list of which rownames of generalAssay should be used for modeling associations. 
 #' @param samplingNumber An integer or a list of pairs (e.g. Protein1_TranscriptionFactor1). If an integer, it will randomly pull that many pairs from all possible combinations of sig1 and sig2, returning the model outputs. 
@@ -435,12 +417,12 @@ pilot_scRNA_Associations <- function(rnaSE, cellPopulation,
                                     generalSE, generalAssay,
                                     sampleColumn, 
                                     modelFormula, 
-                                    ziFormula = ~0,
+                                     ziFormula = ~0,
                                     cellCountThreshold = 10,
                                     family = "negativeBinomial2",
                                     geneList, 
                                     generalList = NULL,
-                                    samplingNumber = 100,
+                                    samplingNumber = 5,
                                     numCores = 10) {
 
 if(isChAIObject(rnaSE, type = 'data', returnType = TRUE) != 'scRNA'){
@@ -462,32 +444,16 @@ if(!isChAIObject(generalSE, type = 'data', returnType = TRUE) %in% c('General', 
     stop('sampleColumn missing from generalSE and/or rnaSE.')
   }
 
- #Check whether samples align.     
-  if(all(!generalSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn]) |
-            all(!rnaSE@colData[,sampleColumn] %in% generalSE@colData[,sampleColumn])){
+  #Check whether samples align.     
+  if(!all(generalSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn]) |
+            !all(rnaSE@colData[,sampleColumn] %in% generalSE@colData[,sampleColumn])){
       stop(stringr::str_interp('samples names in ${sampleColumn} are not the same. Please ensure that sample names match in generalSE and rnaSE via ${sampleColumn}.'))
-  } else if(!all(rnaSE@colData[,sampleColumn] %in% generalSE@colData[,sampleColumn]) |
-      !all(generalSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn])) {
-       
-       partialMatch <- intersect(rnaSE@colData[,sampleColumn] , 
-                                 generalSE@colData[,sampleColumn])
- 
-      warning(stringr::str_interp('Some samples names in ${sampleColumn} are not the same between modalities. Non-matching names will be dropped'))
-      dropped = rnaSE@colData[,sampleColumn] %in% generalSE@colData[,sampleColumn]
-      generalDropped = generalSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn]
-      warning(stringr::str_interp(' ${sum(!dropped)} and ${sum(!generalDropped)} sample(s) dropped from rnaSE and generalSE, respectively'))
-
-      generalSE <- subsetChAI(generalSE, subsetBy = sampleColumn, 
-                              groupList = partialMatch)
-      rnaSE <-  subsetChAI(rnaSE, subsetBy = sampleColumn, 
-                              groupList = partialMatch)
-    }
-      
-  if(!all(generalSE@colData[,sampleColumn] == rnaSE@colData[,sampleColumn])){
+  }else if(!all(generalSE@colData[,sampleColumn] == rnaSE@colData[,sampleColumn])){
       warning('Reording rnaSE and generalSE to match.')
       rnaSE <- rnaSE[,order(rnaSE@colData[,sampleColumn])]
       generalSE <- generalSE[,order(generalSE@colData[,sampleColumn])]
   }
+
   if(any(c(colnames(SummarizedExperiment::colData(generalSE)), 
       colnames(SummarizedExperiment::colData(rnaSE))) %in% c('exp1','exp2'))){
 
@@ -520,13 +486,16 @@ if(!isChAIObject(generalSE, type = 'data', returnType = TRUE) %in% c('General', 
     stop("ziFormula was not provided as a formula.")
   }
 
+  if (zi_threshold < 0 | zi_threshold > 1 | ! is.numeric(zi_threshold)) {
+    stop("zi_threshold must be between 0 and 1.")
+  }
+    
   if (methods::is(modelFormula, 'character')) {
     modelFormula <- stats::as.formula(modelFormula)
   }else if(!methods::is(modelFormula, 'formula')){
     stop('modelFormula is neither a string describing a formula, nor a formula itself. Please provide one of these formats.')
   }
 
-      
   #Subset down to one cell type
   if (length(cellPopulation) > 1) {
   stop(
@@ -607,6 +576,7 @@ if(!isChAIObject(generalSE, type = 'data', returnType = TRUE) %in% c('General', 
 #'                  Must be the same from generalSE and rnaSE. This is used for aligning generalSE and rnaSE
 #' @param modelFormula : Formula used for modeling. Must be in the form exp1 ~ exp2 + other factors + (1|RandomEffect), where 
 #'          exp1 is the dummy variable for gene expression and exp2 is the dummy variable for the rownames from generalSE. 
+#' @param family String. Can be 'negativeBinomial1', 'negativeBinomial2', or 'poisson'. Default is 'poisson', which handles the zeros best. 
 #' @param motifList a list of motifs from chromSE to test
 #' @param generalList A list of which rownames of generalAssay should be used for modeling associations. 
 #' @param samplingNumber An integer or a list of pairs (e.g. Protein1_TranscriptionFactor1). If an integer, it will randomly pull that many pairs from all possible combinations of sig1 and sig2, returning the model outputs. 
@@ -932,13 +902,13 @@ pilot_General_Associations <- function(SE1, SE2, assay1, assay2, sampleColumn,
   pairList <- paste(allCombos[,2], allCombos[,1], sep = "_")
 
   ## Log transform the FragmentNumbers so as to stabilize the model. But only if FragNumber is in the model. Same for CellCounts.
-  if(any(colnames(metaData) %in% c('FragmentCounts'))){
-    metaData$rawFragmentCounts = metaData$FragmentCounts
-    metaData$FragmentCounts <- log10(metaData$FragmentCounts+1)
+  if(any(colnames(metaData) %in% c('FragNumber'))){
+    metaData$rawFragNumber = metaData$FragNumber
+    metaData$FragNumber <- log10(metaData$FragNumber)
   }
   if(any(colnames(metaData) %in% c('CellCounts'))){
     metaData$rawCellCounts = metaData$CellCounts
-    metaData$CellCounts <- log10(metaData$CellCounts + 1)
+    metaData$CellCounts <- log10(metaData$CellCounts)
   }
 
 
@@ -965,7 +935,7 @@ pilot_General_Associations <- function(SE1, SE2, assay1, assay2, sampleColumn,
   # Make your clusters for efficient parallelization
   modelList <- pbapply::pblapply(X = allComboList, function(x) {
   
-    df1<- data.frame(exp1 = unlist(mat1[x[1],]), 
+    df <- data.frame(exp1 = unlist(mat1[x[1],]), 
               exp2 = unlist(mat2[x[2],]), 
               metaData, stringsAsFactors= FALSE)
 
@@ -974,13 +944,13 @@ pilot_General_Associations <- function(SE1, SE2, assay1, assay2, sampleColumn,
     if(modality != 'scATAC_Associations' & all(ziFormula != ~ 0)){
          modelRes <- glmmTMB::glmmTMB(exp1 ~ 1,
           ziformula = ~ 0,
-          data = df1,
+          data = df,
           family = family,
           REML = TRUE,
           control = glmmTMB::glmmTMBControl(parallel = numCores)
         )
         
-        sigZI <- DHARMa::testZeroInflation(modelRes,plot = FALSE)$p.value < 0.05
+        sigZI <- DHARMa::testZeroInflation(modelRes)$p.value < 0.05
           
       }else{
       
@@ -993,7 +963,7 @@ pilot_General_Associations <- function(SE1, SE2, assay1, assay2, sampleColumn,
         if(sigZI){
             suppressWarnings(modelRes <- glmmTMB::glmmTMB(stats::as.formula(continuousFormula),
               ziformula = stats::as.formula(ziFormula),
-              data = df1,
+              data = df,
               family = family,
               REML = TRUE,
               control = glmmTMB::glmmTMBControl(parallel = numCores)
@@ -1002,27 +972,27 @@ pilot_General_Associations <- function(SE1, SE2, assay1, assay2, sampleColumn,
         }else{
          suppressWarnings( modelRes <- glmmTMB::glmmTMB(stats::as.formula(continuousFormula),
               ziformula = ~ 0,
-              data = df1,
+              data = df,
               family = family,
               REML = TRUE,
               control = glmmTMB::glmmTMBControl(parallel = numCores)
             ))
          }
   
-     }else if(sum(df1$exp1 == 0, na.rm = TRUE)/length(df1$exp1) == 0){
+     }else if(sum(df$exp1 == 0, na.rm = TRUE)/length(df$exp1) == 0){
         modelRes <- glmmTMB::glmmTMB(stats::as.formula(continuousFormula),
           ziformula = ~ 0,
-          data = df1,
+          data = df,
           family = family,
           REML = TRUE,
           control = glmmTMB::glmmTMBControl(parallel = numCores)
         )
        
-      }else if(sum(df1$exp1 == 0, na.rm = TRUE)/length(df1$exp1) <= zi_threshold){
-        df1$exp1[df1$exp1 == 0] = NA
-        modelRes <- glmmTMB::glmmTMB(continuousFormula,
+      }else if(sum(df$exp1 == 0, na.rm = TRUE)/length(df$exp1) <= zi_threshold){
+        df$exp1[df$exp1 == 0] = NA
+        modelRes <- glmmTMB::glmmTMB(stats::as.formula(continuousFormula),
           ziformula = ~ 0,
-          data = df1,
+          data = df,
           family = family,
           REML = TRUE,
           control = glmmTMB::glmmTMBControl(parallel = numCores)
@@ -1031,14 +1001,14 @@ pilot_General_Associations <- function(SE1, SE2, assay1, assay2, sampleColumn,
       }else {
         modelRes <- glmmTMB::glmmTMB(stats::as.formula(continuousFormula),
           ziformula = stats::as.formula(ziFormula),
-          data = df1,
+          data = df,
           family = family,
           REML = TRUE,
           control = glmmTMB::glmmTMBControl(parallel = numCores)
         )
       }
     }, error = function(e){
-       list('error' = e, 'Measurement' = x, 'Data' = df1)
+       list('error' = e, 'Measurement' = x, 'Data' = df)
     })
 
   }, cl = NULL)

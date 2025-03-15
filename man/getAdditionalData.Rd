@@ -4,19 +4,18 @@
 \alias{getAdditionalData}
 \title{Extract additional metadata from a ChAI data or model Object}
 \usage{
-getAdditionalData(ChAIObj, feature = NULL)
+getAdditionalData(ChAIObj, feature = "summarizedData")
 }
 \arguments{
 \item{ChAIObj}{A ChAI SummarizedExperiment, whether it's a ChAI data object or a ChAI model object}
 
-\item{feature}{The type of data you want. If null, it will return the list of all options for that objct. 
-Options include 'summarizedData', which contains population-specific metadata like cell counts, 
+\item{feature}{The type of data you want. Options include 'summarizedData', which contains population-specific metadata like cell counts, 
 'detectionRates', which contains the percentage of a population with transcript of a given gene (scRNA only)
  'Residuals', which contains a SummarizedExperiment of Residuals after modeling
  or 'Variance'/'RandomEffectVariance' which will return a data.frame of variance from a model.}
 }
 \value{
-A list of additional data available within a given ChAI object, or a specific data object from that ChAI object.
+A SummarizedExperiment object with additional metadata, or a data.frame of variance.
 }
 \description{
 \code{getAdditionalData} Returns a wide range of metadata from ChAI objects, including

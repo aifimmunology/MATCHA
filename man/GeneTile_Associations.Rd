@@ -15,7 +15,6 @@ GeneTile_Associations(
   geneList,
   tileList = NULL,
   distance = 10^6,
-  allCombinations = TRUE,
   initialSampling = 5,
   numCores = 2
 )
@@ -43,8 +42,6 @@ We don't recommend changing this unless you have fully tested out the model and 
 \item{tileList}{optional list of tiles to test. Default is NULL, which will test all tiles within the provided distance of the TSS.}
 
 \item{distance}{A number limiting the distance between tiles and genes TSS at which point associations will not be tested.}
-
-\item{allCombinations}{A boolean, whether to test all possible pair-wise combinations of geneList and tileList. Default is TRUE. If False, it will require geneList and tileList to be the same length, and only test index-matched pairs (i.e. tileList[2] vs geneList[2] )}
 
 \item{initialSampling}{An integer. Default is 5. Represents the number of initial models to test when generating a null set (which is used when models fails). If your model fails often, increase this number or choose a better formula.}
 

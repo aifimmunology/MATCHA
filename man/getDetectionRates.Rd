@@ -4,7 +4,7 @@
 \alias{getDetectionRates}
 \title{Get the gene detection rates from pseudobulked scRNA}
 \usage{
-getDetectionRates(ChAIObj, CellType = NULL)
+getDetectionRates(ChAIObj, CellType)
 }
 \arguments{
 \item{ChAIObj}{A ChAI SummarizedExperiment, whether it's a ChAI data object or a ChAI model object}

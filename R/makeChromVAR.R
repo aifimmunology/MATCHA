@@ -16,7 +16,7 @@
 #'
 #' @export
 
-makeChromVAR <- function(atacSE, motifName ='Motifs',
+makeChromVAR <- function(atacSE, motifName,
                       cellPopulation = NULL,
                       withinCellType = FALSE,
                       exportRaw = FALSE,
@@ -24,21 +24,17 @@ makeChromVAR <- function(atacSE, motifName ='Motifs',
                       verbose = TRUE) {
 
     if (!requireNamespace("chromVAR", quietly = TRUE)) {
-        
         stop(
         "Package 'chromVAR' is required for makeChromVAR. ",
         "Please install 'chromVAR' to proceed."
         )
-        
     }
     
     if (!requireNamespace("BiocParallel", quietly = TRUE)) {
-        
         stop(
         "Package 'BiocParallel' is required for makeChromVAR. ",
         "Please install 'BiocParallel' to proceed."
         )
-        
     }
 
     if(is.null(cellPopulation)){
@@ -69,7 +65,7 @@ makeChromVAR <- function(atacSE, motifName ='Motifs',
 
     } else if(all(cellPopulation == 'counts')){
         newObj <- atacSE
-    } else {
+    }else{
         newObj <- MOCHA::combineSampleTileMatrix(MOCHA::subsetMOCHAObject(atacSE, 
                                                                           subsetBy = 'celltype', groupList = cellPopulation, subsetPeaks = TRUE))
     }

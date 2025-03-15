@@ -1,0 +1,173 @@
+---
+title: "Modeling Associations Between Data Types"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Modeling Associations Between Data Types}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+
+This vignette shows how ChAI can help you test hypotheses that a feature in one data type is related to a feature in another data type.
+
+For example, are interferon levels in the blood significantly associated with IRF motif activity in the CD16 Monocytes?
+
+For this vignette, we will use our significant features from previous vignette on modeling individual data types, but this is not necessary. 
+If you already know which features you want to test, you can start here. 
+
+
+# Load libraries
+```{r setup}
+library(ChAI)
+library(SummarizedExperiment)
+library(ggplot2)
+library(cowplot)
+```
+
+
+
+Load data objects in. 
+
+```{r}
+atacSE <- readRDS('atac_Obj.rds')
+chromSE <- readRDS('ChromVAR_ChAI_Object.rds')
+#Correct naming
+chromSE <- renameCellTypes(chromSE, 'CD16_Mono', 'CD16 Mono')
+rnaSE <- readRDS('scRNA_ChAI_Object.rds')
+olinkSE <- readRDS('Olink_ChAI_Object.rds')
+```
+
+
+Now, we need to load in all of our previous modeling results, which will tell us which features we want to relate to each other. 
+
+
+```{r}
+atacModel <- readRDS('scATAC_ChAI_Model.rds')
+rnaModel <- readRDS('scRNA_ChAI_Model.rds')
+chromModel <- readRDS('Chrom_ChAI_Model.rds')
+proteinModel <- readRDS('Olink_ChAI_Model.rds')
+```
+
+Let's now pull out the significant features from each modality. 
+These are the features we want to test against each other, trying to see if there are any statistical relationship between different types of data. 
+
+In this case, we will be taking the assumption that proteins in the Serum could be signaling to CD16 monocytes and influencing motif activity, tile accessibility, and gene expression.
+
+```{r}
+sigTiles <- getEstimates(atacModel, factor = 'COVID_statusPositive', FDR_threshold = 0.1)
+sigGenes <- getEstimates(rnaModel , factor = 'StatusCovid', FDR_threshold = 0.1)
+sigTFs <- getEstimates(chromModel, factor = 'COVID_statusPositive', FDR_threshold = 0.1)
+sigProtein <- getEstimates(proteinModel  , factor = 'StatusCovid', FDR_threshold = 0.1)
+```
+
+
+At this point, we are now ready to start testing for pair-wise associations between different data types:
+  - Is IFNL1 Serum levels associated with any of the differential ChromVAR Motifs? (Protein-Motif)
+  - Is IFNL1 Serum levels associated with any of the differential genes? (Protein-Gene)
+  - Are any of the differential ChromVAR motifs associated with differential tiles? (Motif-Tile)
+  - Are any of the differential tiles associated with differential genes?  (Tile-Motif)
+  - Are any of the differential genes associated with differential ChromVAR Motifs?  (Gene - Motif)
+
+Let's start model the association between IFNL protein and motif activity. 
+```{r}
+subOlink <- subsetChAI(olinkSE, subsetBy = 'Visit', groupList = "Visit 1")
+subOlink$Status = factor(subOlink$Status, levels = c('Healthy', 'Covid'))
+subOlink$PTID_visit = subOlink$patientID_Visit
+tf_protein <- ChromVAR_Associations(chromSE = chromSE, cellPopulation = 'CD16 Mono', 
+			generalSE = subOlink, generalAssay = 'General',
+			sampleColumn = 'PTID_visit', 
+                                    modelFormula = exp1 ~ Age + Sex + exp2 + FragNumber, 
+                                    motifList = sigTFs$TFs,
+                                    generalList = 'IFNL1', 
+                                    numCores = 5)
+                                    
+gene_protein <- scRNA_Associations(rnaSE = rnaSE, cellPopulation = 'CD16 Mono', 
+			generalSE = subOlink, generalAssay = 'General',
+			sampleColumn = 'PTID_visit', 
+                                    modelFormula = exp1 ~ Age + Sex + exp2 , 
+                                    geneList = sigGenes$Genes, 
+                                    generalList = 'IFNL1', 
+                                    numCores = 5)
+gene_protein
+                                   
+```
+
+Connect Motif activity to Tile Accessibility and Gene expression
+```{r}
+atac_tf <- scATAC_Associations(atacSE = atacSE, cellPopulation = 'CD16 Mono', 
+			generalSE = chromSE, generalAssay = 'CD16 Mono', 
+			sampleColumn = 'PTID_visit', 
+                                 continuousFormula = exp1 ~ Age + Sex + exp2,
+			                	ziFormula = ~ 0 + FragNumber + exp2,  
+                                    generalList = sigTFs$TFs,
+                                    tileList = sigTiles$Tiles, 
+                                    numCores = 5)
+                                    
+rna_tf <- scRNA_Associations(rnaSE = rnaSE, cellPopulation = 'CD16 Mono', 
+			generalSE = chromSE, generalAssay = 'CD16 Mono', 
+			sampleColumn = 'PTID_visit', 
+                                    modelFormula = exp1 ~ Age + Sex + exp2, 
+                                    generalList = sigTFs$TFs,
+                                    geneList = sigGenes$Genes, 
+                                    numCores = 5)
+```
+
+Connect Motif activity and Gene expression
+```{r}
+gene_tile <- GeneTile_Associations(atacSE = atacSE, rnaSE = rnaSE,
+				 cellPopulation = 'CD16 Mono', 
+				sampleColumn = 'PTID_visit', 
+                                    continuousFormula = exp1 ~ Age + Sex + exp2 , 
+				  ziFormula = ~ 0 + FragNumber, 
+				distance= 2*10^6,
+                                    tileList = sigTiles$Tiles, 
+                                    geneList = sigGenes$Genes, 
+                                    numCores = 5)
+```
+Side note: These Gene-tile links can be exported for browsing in IGV-Viewer via exportGeneLinks.
+
+
+
+Let's see what one of these associations looks like. 
+```{r}
+top_tf_protein <-dplyr::arrange(getEstimates(tf_protein, 'exp2'),FDR)
+#Let's look at INFL1 and NFKB1, which is known to be activated by IFNL1. The two appear significantly related in our dataset. 
+adjustTF_prot <- associatedPredictions(SE1 = chromSE, assay1 = 'CD16 Mono', 
+                                  SE2 = subOlink, assay2= 'General', 
+                                   	sampleColumn = 'PTID_visit', 
+                                   interModel = tf_protein, 
+                                   firstPair = 'NFKB1', secondPair = 'IFNL1',
+                            adjust = TRUE, outputDF = TRUE)
+ggplot(adjustTF_prot) + geom_point(aes(x = exp1, y = exp2, color = COVID_status)) + theme_bw() + 
+  geom_smooth(aes(x = exp1, y = exp2),method=lm, alpha = 0.5)
+
+```
+
+
+
+
+How about TF-tile associations for NFKB1?
+```{r}
+top_atac_tf <- dplyr::filter(getEstimates(atac_tf, 'exp2'), General == 'NFKB1')
+#Let's look at INFL1 and NFKB1, which is known to be activated by IFNL1. The two appear significantly related in our dataset. 
+adjustTF <- associatedPredictions (SE1 = atacSE, assay1 = 'CD16 Mono', SE2 = chromSE, assay2= 'CD16 Mono', 
+                                   	sampleColumn = 'PTID_visit', 
+                                   interModel = atac_tf, 
+                                   firstPair = top_atac_tf$Tiles,  secondPair = top_atac_tf$General,
+                            adjust = TRUE, outputDF = TRUE)
+ggplot(adjustTF) + geom_point(aes(x = exp1, y = exp2, color = COVID_status)) + theme_bw() + geom_smooth(aes(x = exp1, y = exp2),method=lm)
+
+
+```
+
+Finally, let's save these modeling results for future use. 
+```{r}
+
+saveRDS(atac_tf, 'atac_tf_model.rds')
+saveRDS(rna_tf, 'rna_tf_model.rds')
+saveRDS(tf_protein, 'tf_protein.rds')
+saveRDS(gene_protein, 'gene_protein_model.rds')
+saveRDS(gene_tile, 'gene_tile_model.rds')
+
+```

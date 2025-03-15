@@ -5,7 +5,7 @@
 \title{Extract association model predictions with original data and metadata for plotting}
 \usage{
 associatedPredictions(
-  SE1 = NULL,
+  SE1,
   SE2,
   assay1,
   assay2,
@@ -37,7 +37,7 @@ Must be the same from SE1 and SE2. This is used for aligning SE1 and SE2}
 
 \item{adjust}{A boolean, default to TRUE. Determines whether to generate an column with an adjusted measurement. The measurement will be adjusted for all factors that are not the specVariable within the model.}
 
-\item{outputDF}{A boolean, deteremines whether to out put a dataframe or SummarizedExperiment with results.}
+\item{outputDF}{A boolea, default is FALSE, as to whether to return a summarized experiment with a seperate assay for each pair, or just a list of data.frames.}
 }
 \value{
 A SummarizedExperiment, where each data.frame is the original data used to associated, with adjusted data (if adjust = TRUE), the model predictions, and all other metadata.

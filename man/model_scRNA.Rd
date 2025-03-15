@@ -22,7 +22,7 @@ model_scRNA(
 \arguments{
 \item{rnaSE}{A SummarizedExperiment object generated from normalizePseudobulk}
 
-\item{cellPopulation}{Name(s) of a cell type to be modeled, or 'all' if you want to model across all cell types.}
+\item{cellPopulation}{Name of a cell type.}
 
 \item{modelFormula}{The formula to use, in the
 format (exp ~ factors). All factors must be found in column names
@@ -47,12 +47,11 @@ This detection rate is calculated for each sample and cell type during makePseud
 \item{numCores}{integer. Number of cores to parallelize across.}
 }
 \value{
-results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
+results a SummarizedExperiment containing LMEM results. Assays are metrics related to the model coefficients,
          including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
          the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
          Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
-         If multiple cell types are provided, then a named list of the above objects will be returned, one for each object.
 }
 \description{
 \code{model_scRNA} Runs high-throughout GLM modeling of gene expression using \code{\link[glmmTMB]{glmmTMB}}

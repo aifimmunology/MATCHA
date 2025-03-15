@@ -14,7 +14,6 @@
 #' @param geneList a list of genes from rnaSE to test. 
 #' @param tileList optional list of tiles to test. Default is NULL, which will test all tiles within the provided distance of the TSS. 
 #' @param distance A number limiting the distance between tiles and genes TSS at which point associations will not be tested. 
-#' @param allCombinations A boolean, whether to test all possible pair-wise combinations of geneList and tileList. Default is TRUE. If False, it will require geneList and tileList to be the same length, and only test index-matched pairs (i.e. tileList[2] vs geneList[2] )
 #' @param initialSampling An integer. Default is 5. Represents the number of initial models to test when generating a null set (which is used when models fails). If your model fails often, increase this number or choose a better formula.
 #' @param numCores Optional, the number of cores to use with multiprocessing. Default is 1.
 #'
@@ -32,7 +31,6 @@ GeneTile_Associations <- function(atacSE, rnaSE, cellPopulation, sampleColumn,
                                     geneList, 
                                     tileList = NULL,
                                     distance = 10^6,
-                                    allCombinations = TRUE,
                                     initialSampling = 5, numCores = 2) {
     
  if (!requireNamespace("MOCHA", quietly = TRUE)) {
@@ -63,15 +61,6 @@ GeneTile_Associations <- function(atacSE, rnaSE, cellPopulation, sampleColumn,
     stop('sampleColumn missing from atacSE and/or rnaSE.')
   }
     
-  ### The sample column must be unique identifiers for aligning samples. 
-  ### verify that this is true
-  if(any(duplicated(atacSE@colData[,sampleColumn])) | any(duplicated(rnaSE@colData[,sampleColumn]))){
-  
-      stop('Duplicate values found with sampleColumn provided. Please ensure sample identifiers are unique within each object')
-      
-  }
-
-    
   #Check whether samples align.     
   if(all(!atacSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn]) |
             all(!rnaSE@colData[,sampleColumn] %in% atacSE@colData[,sampleColumn])){
@@ -85,35 +74,18 @@ GeneTile_Associations <- function(atacSE, rnaSE, cellPopulation, sampleColumn,
       warning(stringr::str_interp('Some samples names in ${sampleColumn} are not the same between modalities. Non-matching names will be dropped'))
       dropped = rnaSE@colData[,sampleColumn] %in% atacSE@colData[,sampleColumn]
       generalDropped = atacSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn]
-      warning(stringr::str_interp(' ${sum(!dropped)} and ${sum(!generalDropped)} sample(s) dropped from rnaSE and atacSE, respectively'))
+      warning(stringr::str_interp(' ${sum(!dropped)} and ${sum(!generalDropped)} sampled dropped from rnaSE and atacSE, respectively'))
 
-      atacSE <- MOCHA::subsetMOCHAObject(atacSE, subsetBy = sampleColumn, 
+      atacSE <- subsetMOCHAObject(atacSE, subsetBy = sampleColumn, 
                               groupList = partialMatch)
       rnaSE <-  subsetChAI(rnaSE, subsetBy = sampleColumn, 
                               groupList = partialMatch)
     }
+
  
-  #Reorder the samples names so that samples are aligned. 
   if(!all(atacSE@colData[,sampleColumn] == rnaSE@colData[,sampleColumn])){
-      message('Reordering rnaSE sample names to match atacSE.')
-      rnaOrder = match(atacSE@colData[,sampleColumn], rnaSE@colData[,sampleColumn])
-      rnaSE <- rnaSE[,rnaOrder]
-      rnaSE@metadata$summarizedData =  rnaSE@metadata$summarizedData[,rnaOrder]
-      rnaSE@metadata$detectionRate =  rnaSE@metadata$detectionRate[rnaOrder,]
-  }
-    
-  #Check for samples that had no cells for a given cell type (scRNA) or less than or equal to 5 cells for scATAC.
-  emptySamples1 <- unlist(SummarizedExperiment::assays(atacSE@metadata$summarizedData)[['CellCounts']][cellPopulation,]) <= 5
-  emptySamples2 <- unlist(SummarizedExperiment::assays(rnaSE@metadata$summarizedData)[['CellCounts']][cellPopulation,]) == 0
-                                
-  if(any(emptySamples1) | any(emptySamples2)){
-    warning(stringr::str_interp('Different number of empty samples across modalities. This can occur when no cells were detected in a given sample of scRNA, or 5 or less in scATACseq. Subsetting will occur now.'))
-    atacSamples <- colnames(atacSE)[which(!emptySamples1 | !emptySamples2)]
-    rnaSamples <- colnames(rnaSE)[which(!emptySamples1 | !emptySamples2)]
-    
-    atacSE <- MOCHA::subsetMOCHAObject(atacSE, subsetBy = 'Sample', groupList = atacSamples)
-    rnaSE <- subsetChAI(rnaSE, subsetBy = 'Sample', groupList = rnaSamples)
-    
+      warning('Reording rnaSE sample names to match atacSE.')
+      rnaSE <- rnaSE[,match(atacSE@colData[,sampleColumn], rnaSE@colData[,sampleColumn])]
   }
 
   if(any(c(colnames(SummarizedExperiment::colData(atacSE)), 
@@ -164,7 +136,7 @@ GeneTile_Associations <- function(atacSE, rnaSE, cellPopulation, sampleColumn,
   }
 
   #Subset down each SummarizedExperiment to the rows of interest, and assays of interest. 
-  newrnaSE <- newrnaSE[rownames(newrnaSE)  %in% unique(geneList), ]
+  newrnaSE <- newrnaSE[rownames(newrnaSE)  %in% geneList, ]
           
   if(!all(tileList %in% rownames(newatacSE)) & !is.null(tileList)){
      stop('tileList not found within atacSE.  Please read check that your tiles of interest are present in atacSE.')
@@ -177,7 +149,7 @@ GeneTile_Associations <- function(atacSE, rnaSE, cellPopulation, sampleColumn,
    #   stop("tileList is a not a valid vector of tile names. Make sure tile names are in the format'ch1:1000-1499'.")
         
    #}
-    tileGR <- MOCHA::StringsToGRanges(unique(tileList))
+    tileGR <- MOCHA::StringsToGRanges(tileList)
       
   }else{
       
@@ -185,57 +157,36 @@ GeneTile_Associations <- function(atacSE, rnaSE, cellPopulation, sampleColumn,
       
   }
 
-  if(allCombinations){
-      geneList <- unique(geneList)
-      #Find all tiles within the given distance of the gene list of interest
-      geneGR <-SummarizedExperiment::rowRanges(newrnaSE[geneList,])
-      if(all(is.null(geneGR))){
-              stop('No genomic locations were saved for the ChAI RNA object. Please run linkToGenome on the ChAI RNA object and try again.')
-      }
-      geneTSS <- GenomicRanges::promoters(geneGR,upstream=1, downstream=1)
-      geneWindows <- suppressWarnings(plyranges::stretch(geneTSS, distance*2))
 
-      #Use join_overlap_intersect to find all tiles that overlap with the distance around the TSS. 
-      tileGR <- suppressWarnings(expr = plyranges::join_overlap_inner(tileGR, geneWindows))
+  #Find all tiles within the given distance of the gene list of interest
+  geneGR <-SummarizedExperiment::rowRanges(newrnaSE[geneList,])
+  geneTSS <- GenomicRanges::promoters(geneGR,upstream=1, downstream=1)
+  geneWindows <- suppressWarnings(plyranges::stretch(geneTSS, distance*2))
 
-      #Generate the filtered tile list for those tiles that fall within the distance to the gene. 
-      tileList2 <- MOCHA::GRangesToString(tileGR)
+  #Use join_overlap_intersect to find all tiles that overlap with the distance around the TSS. 
+  tileGR <- suppressWarnings(expr = plyranges::join_overlap_inner(tileGR, geneWindows))
 
-      #Generate the data frame of all combinations
-      if(length(tileList2) > 0){
-          allCombos <- data.frame('Var1' = tileGR$GeneSymbol, 'Var2' = tileList2)
-      }else{
+  #Generate the filtered tile list for those tiles that fall within the distance to the gene. 
+  tileList2 <- MOCHA::GRangesToString(tileGR)
+
+  #Generate the data frame of all combinations
+  allCombos <- data.frame('Var1' = tileGR$GeneSymbol, 'Var2' = tileList2)
+    
+  if(!all(geneList %in% unique(allCombos$Var1))){
+    
+      numGenes <- sum(!geneList %in% unique(allCombos$Var1))
+      warning(stringr::str_interp("${numGenes} genes do not have any tiles from the tileList within ${distance} basepairs of their tss. These genes have been dropped from testing."))
       
-          stop(stringr::str_interp("No tiles fell within ${distance} bp of a gene within the geneList."))
-          
-      }
+    }
 
-      if(!all(geneList %in% unique(allCombos$Var1))){
-
-          numGenes <- sum(!geneList %in% unique(allCombos$Var1))
-          warning(stringr::str_interp("${numGenes} genes do not have any tiles from the tileList within ${distance} basepairs of their tss. These genes have been dropped from testing."))
-
-        }
-
-      if(!all(tileList %in% unique(allCombos$Var2))){
-
-          numTiles <- sum(!tileList %in% unique(allCombos$Var2))
-          warning(stringr::str_interp("${numTiles} tiles are not within ${distance} basepairs of a gene's TSS, based on the geneList. These tiles have been dropped from testing."))
-
-        }
-
-      newatacSE <- newatacSE[rownames(newatacSE)  %in% tileList2, ]
-
-    }else if(length(geneList) == length(tileList)){
-
-        allCombos = data.frame(Var1 = geneList, Var2 = tileList)
-        newatacSE <- newatacSE[rownames(newatacSE)  %in% unique(tileList), ]
-
-    }else{
-  
-    stop('Length of tileList and geneList are not the same, so direct pairwise combinations cannot be made. Please set them to be the same length or set allCombinations = TRUE.')
+  if(!all(tileList %in% unique(allCombos$Var2))){
+    
+      numTiles <- sum(!tileList %in% unique(allCombos$Var2))
+      warning(stringr::str_interp("${numTiles} tiles are not within ${distance} basepairs of a gene's TSS, based on the geneList. These tiles have been dropped from testing."))
       
-  }
+    }
+
+  newatacSE <- newatacSE[rownames(newatacSE)  %in% tileList2, ]
 
   #Test whether the continuousFormula is in the right format
   if(!(all.vars(stats::as.formula(continuousFormula))[1] =='exp1' & any(all.vars(stats::as.formula(continuousFormula)) %in% 'exp2'))){
@@ -276,7 +227,7 @@ GeneTile_Associations <- function(atacSE, rnaSE, cellPopulation, sampleColumn,
 #'
 #' @description \code{scATAC_Associations} High-throughput zero-inflated GLMM-based modeling tile accessibility as a function of features from a General Modality
 #' @param atacSE A MOCHA Tile-by-Sample Object (SummarizedExperiment)generated from getSampleTileMatrix within \code{\link[MOCHA]{MOCHA}}. 
-#' @param cellPopulation - name(s) of the cell population (assay name in the SummarizedExperiment) to be modeled, or the 'all' if you want to model across all cell types.
+#' @param cellPopulation - name of the assay (cell population) to extract and use from atacSE
 #' @param generalSE A ChAI General modalityobject, generated by \code{makeChromVAR} or \code{importGeneralModality}
 #' @param generalAssay Name of the assay from generalSE that you wish to use for modeling.
 #' @param sampleColumn - A string: the name of the column with Sample names from the metadata. 
@@ -288,16 +239,10 @@ GeneTile_Associations <- function(atacSE, rnaSE, cellPopulation, sampleColumn,
 #'            We don't recommend changing this unless you have fully tested out the model and understand what it is doing. 
 #' @param tileList a list of tiles to test. 
 #' @param generalList A list of which rownames of generalAssay should be used for modeling associations. 
-#' @param allCombinations A boolean, whether to test all possible pair-wise combinations of tileList and generalList. Default is TRUE. If False, it will require tileList and generalList to be the same length, and only test index-matched pairs (i.e. tileList[2] vs generalList[2] )
 #' @param initialSampling An integer. Default is 5. Represents the number of initial models to test when generating a null set (which is used when models fails). If your model fails often, increase this number or choose a better formula.
 #' @param numCores Optional, the number of cores to use with multiprocessing. Default is 1.
 #'
-#' @return results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
-#'          including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
-#'          the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
-#'          Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
-#'          If multiple cell types are provided, then a named list of the above objects will be returned, one for each object. 
+#' @return A summarized experiment summarizing the output. 
 #'
 #'  
 #'
@@ -309,11 +254,10 @@ scATAC_Associations <- function(atacSE, cellPopulation,
                                     generalSE, generalAssay,
                                     sampleColumn, 
                                     continuousFormula, 
-                                    ziFormula = ~ 0 + FragmentCounts, 
+                                    ziFormula = ~ 0 + FragNumber, 
                                     zi_threshold = 0,
                                     tileList,
                                     generalList, 
-                                    allCombinations = TRUE,
                                     initialSampling = 5, numCores = 2) {
  
    if (!requireNamespace("MOCHA", quietly = TRUE)) {
@@ -336,19 +280,14 @@ scATAC_Associations <- function(atacSE, cellPopulation,
 
   }
  
+    
+    tileList <- unique(tileList)
+    generalList <- unique(generalList)
+ 
   if(!sampleColumn %in% colnames(SummarizedExperiment::colData(atacSE)) |
           !sampleColumn %in% colnames(SummarizedExperiment::colData(generalSE))){
 
     stop('sampleColumn missing from atacSE and/or generalSE.')
-  }
-    
-    
-  ### The sample column must be unique identifiers for aligning samples. 
-  ### verify that this is true
-  if(any(duplicated(atacSE@colData[,sampleColumn])) | any(duplicated(generalSE@colData[,sampleColumn]))){
-  
-      stop('Duplicate values found with sampleColumn provided. Please ensure sample identifiers are unique within each object')
-      
   }
     
  #Check whether samples align.     
@@ -364,31 +303,20 @@ scATAC_Associations <- function(atacSE, cellPopulation,
       warning(stringr::str_interp('Some samples names in ${sampleColumn} are not the same between modalities. Non-matching names will be dropped'))
       dropped = atacSE@colData[,sampleColumn] %in% generalSE@colData[,sampleColumn]
       generalDropped = generalSE@colData[,sampleColumn] %in% atacSE@colData[,sampleColumn]
-      warning(stringr::str_interp(' ${sum(!dropped)} and ${sum(!generalDropped)} sample(s) dropped from atacSE and generalSE, respectively'))
+      warning(stringr::str_interp(' ${sum(!dropped)} and ${sum(!generalDropped)} sampled dropped from atacSE and generalSE, respectively'))
 
       generalSE <- subsetChAI(generalSE, subsetBy = sampleColumn, 
                               groupList = partialMatch)
-      atacSE <-  MOCHA::subsetMOCHAObject(atacSE, subsetBy = sampleColumn, 
+      atacSE <-  subsetMOCHAObject(atacSE, subsetBy = sampleColumn, 
                               groupList = partialMatch)
     }
  
  if(!all(atacSE@colData[,sampleColumn] == generalSE@colData[,sampleColumn])){
 
-      message('Reordering generalSE sample names to match atacSE.')
+      warning('Reording generalSE sample names to match atacSE.')
       generalSE <- generalSE[,order(generalSE@colData[,sampleColumn])]
-     
-      atacOrder = order(atacSE@colData[,sampleColumn])
-      atacSE <- atacSE[,atacOrder]
-      atacSE@metadata$summarizedData = atacSE@metadata$summarizedData[,atacOrder]
-      atacSE@metadata$detectionRate =  atacSE@metadata$detectionRate[atacOrder,]
-
+      atacSE <- atacSE[,order(atacSE@colData[,sampleColumn])]
   }
-     
- ## Check whether all tiles are present in the atacSE object.
-  if(!all(tileList %in% rownames(atacSE))){
-     stop('tileList not found within atacSE.  Please read check that your tiles of interest are present in atacSE.')
-  }
-     
 
   if(any(c(colnames(SummarizedExperiment::colData(atacSE)), 
       colnames(SummarizedExperiment::colData(generalSE))) %in% c('exp1','exp2'))){
@@ -398,6 +326,12 @@ scATAC_Associations <- function(atacSE, cellPopulation,
     Please remove these and try again.')
 
   }
+      
+  #if(!MOCHA::validRegionString(tileList)){
+      
+  #    stop("tileList is a not a valid vector of tile names. Make sure tile names are in the format'ch1:1000-1499'.")
+        
+  #}
 
    #Test whether tileList and geneList are found in their assays.
   if(!all(generalList %in% rownames(generalSE))){
@@ -411,88 +345,33 @@ scATAC_Associations <- function(atacSE, cellPopulation,
   if (methods::is(ziFormula,'character')) {
     ziFormula <- stats::as.formula(ziFormula)
   }
-  
-    
-  ## Evaluate cellPopulations. 
-  if(all(tolower(cellPopulation) == 'all')){
-   
-      cellPopulation = SummarizedExperiment::assayNames(atacSE)
-      
-  }
-    
-      
-  if(!all(cellPopulation %in% SummarizedExperiment::assayNames(atacSE))){
-   
-      stop('cellPopulation not found within atacSE object')
-      
-  }
-      
-  #If multiple cell types, then loop over all and return a list of model objects. 
-  if(length(cellPopulation) > 1){
-    
-    allRes = lapply(cellPopulation, function(XX){
-            message(stringr::str_interp('Modeling ${XX}'))
-            tryCatch({
-                gc()
-                subTiles = getCellTypeTiles(atacSE[tileList,], cellType = XX)
-                if(length(subTiles) > 0){
-                    scATAC_Associations(atacSE, cellPopulation = XX,
-                                        generalSE, generalAssay,
-                                        sampleColumn, 
-                                        continuousFormula, 
-                                        ziFormula = ziFormula, 
-                                        zi_threshold = zi_threshold,
-                                        tileList,
-                                        generalList, 
-                                        allCombinations = allCombinations,
-                                        initialSampling = initialSampling, 
-                                        numCores = numCores)
-                } else{ return('No tiles called for this celltype') }
-                
-                }, error = function(e){e})
-        })
-    names(allRes) = cellPopulation
-    return(allRes)
-    
+
+  #Subset down to one cell type
+  if (length(cellPopulation) > 1) {
+  stop(
+    "More than one cell population was provided. ",
+    "cellPopulation must be length 1. To run over multiple cell types, ",
+    "run combineSampleTileMatrix() to produce a new combined TSAM_Object and set ",
+    "cellPopulation = 'counts'."
+  )
+  } else if (!cellPopulation %in% names(SummarizedExperiment::assays(atacSE))){
+    stop(stringr::str_interp("!{cellPopulation} was not found within atacSE."))
+  } else if ( !generalAssay %in% names(SummarizedExperiment::assays(generalSE))){
+     stop(stringr::str_interp("!{generalAssay} was not found within generalSE."))
+
   } else if(cellPopulation == 'counts'){
-    
     newatacSE <- atacSE
-    #Check for samples that had no cells for a given cell type (scRNA) or less than or equal to 5 cells for scATAC.
-    emptySamples1 <- newatacSE$CellCounts <= 5
-     if(any(emptySamples1)){
-        
-        warning(stringr::str_interp('Different number of empty samples across modalities. This can occur when no cells were detected
-                    in a given sample of scRNA, or 5 or less in scATACseq. Subsetting will occur now.'))
-        newatacSE=newatacSE[,!emptySamples1]
-        generalSamples <- colnames(generalSE)[which(!emptySamples1)]
-
-        generalSE <- subsetChAI(generalSE, subsetBy = 'Sample', groupList = generalSamples)
-
-    }
-
     
-  } else{
-    
-    #Check for samples that had no cells for a given cell type (scRNA) or less than or equal to 5 cells for scATAC.
-    emptySamples1 <- unlist(SummarizedExperiment::assays(atacSE@metadata$summarizedData)[['CellCounts']][cellPopulation,]) <= 5
-
-    if(any(emptySamples1)){
-        
-        warning(stringr::str_interp('Different number of empty samples across modalities. This can occur when no cells were detected
-                    in a given sample of scRNA, or 5 or less in scATACseq. Subsetting will occur now.'))
-        atacSamples <- colnames(atacSE)[which(!emptySamples1)]
-        generalSamples <- colnames(generalSE)[which(!emptySamples1)]
-
-        atacSE <- MOCHA::subsetMOCHAObject(atacSE, subsetBy = 'Sample', groupList = atacSamples)
-        generalSE <- subsetChAI(generalSE, subsetBy = 'Sample', groupList = generalSamples)
-
-    }
-
+  }else{
     newatacSE <- MOCHA::combineSampleTileMatrix(MOCHA::subsetMOCHAObject(atacSE, subsetBy = 'celltype', groupList = cellPopulation, subsetPeaks = TRUE))
-    
+   
   }
   newGeneral <- generalSE
   SummarizedExperiment::assays(newGeneral) <- SummarizedExperiment::assays(newGeneral)[generalAssay]
+
+  if(!all(tileList %in% rownames(newatacSE))){
+     stop('tileList not found within atacSE.  Please read check that your tiles of interest are present in atacSE.')
+  }
 
     #Test whether the continuousFormula is in the right format
   if(!(all.vars(stats::as.formula(continuousFormula))[1] =='exp1' & any(all.vars(stats::as.formula(continuousFormula)) %in% 'exp2'))){
@@ -513,34 +392,22 @@ scATAC_Associations <- function(atacSE, cellPopulation,
   }
 
   #Subset down each SummarizedExperiment to the rows of interest, and assays of interest. 
-  newatacSE <- newatacSE[rownames(newatacSE)  %in% unique(tileList), ]
-  newGeneral <- newGeneral[rownames(newGeneral)  %in% unique(generalList), ]
-    
+  newatacSE <- newatacSE[rownames(newatacSE)  %in% tileList, ]
+  newGeneral <- newGeneral[rownames(newGeneral)  %in% generalList, ]
+
+
+  #Find all combinations of tileList and geneList to test. 
+  cl <- parallel::makeCluster(numCores)
+
   #Find all combinations of tileList and geneList to test.
-  message('Compiling pair-wise combinations')
+  message('Compiling all pair-wise combinations')
+  allCombos <- do.call('rbind', pbapply::pblapply(cl = cl, X = generalList, findCombo, List2 = tileList))
 
-  if(allCombinations){
-    tileList <- unique(tileList)
-    generalList <- unique(generalList)
-    #Find all combinations of tileList and geneList to test. 
-    cl <- parallel::makeCluster(numCores)
-    allCombos <- do.call('rbind', pbapply::pblapply(cl = cl, X = generalList, findCombo, List2 = tileList))
-    parallel::stopCluster(cl)
-    }else if(length(generalList) == length(tileList)){
-
-        allCombos = data.frame(Var1 = generalList, Var2 = tileList)
-
-    }else{
-  
-    stop('Length of tileList and generalList are not the same, so direct pairwise combinations cannot be made. Please set them to be the same length or set allCombinations = TRUE.')
-      
-  }
-
+  parallel::stopCluster(cl)
 
   scATAC_Assoc <- .multiModalModeling(SE1 = newatacSE, SE2 = newGeneral, sampleColumn = sampleColumn,
                           allCombos = allCombos, continuousFormula =  continuousFormula,
-                        ziFormula = ziFormula, zi_threshold = zi_threshold, 
-                                      initialSampling = initialSampling, 
+                        ziFormula = ziFormula, zi_threshold = zi_threshold, initialSampling = initialSampling, 
                         family = stats::gaussian(), modality = 'scATAC_Associations',
                         numCores = numCores)
 
@@ -581,16 +448,10 @@ findCombo <- function(x, List2){
 #' @param cellCountThreshold The minimum number of cells in a given pseudobulk for the pseudobulk to be included in analysis. If fewer than this number of cells are found, then the sample will be dicarded The number of cells within the pseudobulked scRNA. Default is 10 cells. 
 #' @param geneList a list of genes from rnaSE to test. 
 #' @param generalList A list of which rownames of generalAssay should be used for modeling associations. 
-#' @param allCombinations A boolean, whether to test all possible pair-wise combinations of geneList and generalList. Default is TRUE. If False, it will require geneList and generalList to be the same length, and only test index-matched pairs (i.e. geneList[2] vs generalList[2] )
 #' @param initialSampling An integer. Default is 5. Represents the number of initial models to test when generating a null set (which is used when models fails). If your model fails often, increase this number or choose a better formula.
 #' @param numCores Optional, the number of cores to use with multiprocessing. Default is 2.
 #'
-#' @return results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
-#'          including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
-#'          the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
-#'          Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
-#'          If multiple cell types are provided, then a named list of the above objects will be returned, one for each object. 
+#' @return A summarized experiment summarizing the output. 
 #'
 #'  
 #'
@@ -606,7 +467,6 @@ scRNA_Associations <- function(rnaSE, cellPopulation,
                                     family = "negativeBinomial2",
                                     geneList, 
                                     generalList = NULL,
-                                    allCombinations = TRUE,
                                     initialSampling = 5, numCores = 2) {
                                       
   if(isChAIObject(rnaSE, type = 'data', returnType = TRUE) != 'scRNA'){
@@ -615,7 +475,7 @@ scRNA_Associations <- function(rnaSE, cellPopulation,
 
   }
 
- if(!isChAIObject(generalSE, type = 'data', returnType = TRUE) %in% c('General', 'ChromVAR')){
+if(!isChAIObject(generalSE, type = 'data', returnType = TRUE) %in% c('General', 'ChromVAR')){
 
     stop('generalSE is neither a ChAI General Modality Object, generated via importGeneralModality, 
             nor a ChAI ChromVAR object generated by makeChromVAR.')
@@ -627,17 +487,7 @@ scRNA_Associations <- function(rnaSE, cellPopulation,
 
     stop('sampleColumn missing from generalSE and/or rnaSE.')
   }
-    
-    
-  ### The sample column must be unique identifiers for aligning samples. 
-  ### verify that this is true
-  if(any(duplicated(generalSE@colData[,sampleColumn])) | any(duplicated(rnaSE@colData[,sampleColumn]))){
-  
-      stop('Duplicate values found with sampleColumn provided. Please ensure sample identifiers are unique within each object')
-      
-  }
-    
-       
+
   #Check whether samples align.     
   if(all(!generalSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn]) |
             all(!rnaSE@colData[,sampleColumn] %in% generalSE@colData[,sampleColumn])){
@@ -651,95 +501,19 @@ scRNA_Associations <- function(rnaSE, cellPopulation,
       warning(stringr::str_interp('Some samples names in ${sampleColumn} are not the same between modalities. Non-matching names will be dropped'))
       dropped = rnaSE@colData[,sampleColumn] %in% generalSE@colData[,sampleColumn]
       generalDropped = generalSE@colData[,sampleColumn] %in% rnaSE@colData[,sampleColumn]
-      warning(stringr::str_interp(' ${sum(!dropped)} and ${sum(!generalDropped)} sample(s) dropped from rnaSE and generalSE, respectively'))
+      warning(stringr::str_interp(' ${sum(!dropped)} and ${sum(!generalDropped)} sampled dropped from rnaSE and generalSE, respectively'))
 
       generalSE <- subsetChAI(generalSE, subsetBy = sampleColumn, 
                               groupList = partialMatch)
       rnaSE <-  subsetChAI(rnaSE, subsetBy = sampleColumn, 
                               groupList = partialMatch)
     }
-
-
+      
   if(!all(generalSE@colData[,sampleColumn] == rnaSE@colData[,sampleColumn])){
-      message('Re-ordering rnaSE and generalSE to match.')
-      rnaOrder = order(rnaSE@colData[,sampleColumn])
-      rnaSE <- rnaSE[,rnaOrder]
-      rnaSE@metadata$summarizedData =  rnaSE@metadata$summarizedData[,rnaOrder]
-      rnaSE@metadata$detectionRate =  rnaSE@metadata$detectionRate[rnaOrder,]
+      warning('Reording rnaSE and generalSE to match.')
+      rnaSE <- rnaSE[,order(rnaSE@colData[,sampleColumn])]
       generalSE <- generalSE[,order(generalSE@colData[,sampleColumn])]
   }
-      
-  if(all(tolower(cellPopulation) == 'all')){
-   
-      cellPopulation = SummarizedExperiment::assayNames(rnaSE)
-      
-  }
-      
-  if(!all(cellPopulation %in% SummarizedExperiment::assayNames(rnaSE))){
-   
-      stop('cellPopulation not found within rnaSE object')
-      
-  }
-
-      
-  #If multiple cell types, then loop over all and return a list of model objects. 
-  if(length(cellPopulation) > 1){
-    
-    allRes = lapply(cellPopulation, function(XX){
-            message(stringr::str_interp('Modeling ${XX}'))
-            tryCatch({
-                gc()
-                if(all(names(geneList) %in% cellPopulation) & all(!is.null(names(geneList)))){
-                    subgeneList = geneList[[XX]]
-                }else{
-                    
-                    subgeneList = geneList
-                }
-
-               if(all(names(generalList) %in% cellPopulation) & all(!is.null(names(generalList)))){
-                    subGeneral = generalList[[XX]]
-                }else{
-                    
-                    subGeneral = generalList
-                }
-                
-                scRNA_Associations(rnaSE, cellPopulation = XX, 
-                        generalSE, generalAssay,
-                        sampleColumn, 
-                        modelFormula, 
-                        ziFormula = ziFormula,
-                        cellCountThreshold = cellCountThreshold,
-                        family = family,
-                        geneList =subgeneList, 
-                        generalList = subGeneral,
-                        allCombinations = allCombinations,
-                        initialSampling = initialSampling, numCores = numCores)
-            }, error = function(e){e})
-        })
-    names(allRes) = cellPopulation
-    return(allRes)
-    
-  }
-      
-  #Check for samples that had no cells for a given cell type (scRNA) or less than or equal to 5 cells for scATAC.
-  emptySamples1 <- unlist(SummarizedExperiment::assays(rnaSE@metadata$summarizedData)[['CellCounts']][cellPopulation,]) < cellCountThreshold
-                 
-  if(any(emptySamples1)){
-    warning(stringr::str_interp('Different number of empty samples across modalities. This can occur when no cells were detected in a given sample of scRNA, or 5 or less in scATACseq. Subsetting will occur now.'))
-    rnaSamples <- SummarizedExperiment::colData(rnaSE)[which(!emptySamples1), sampleColumn]
-      
-    generalSE <- subsetChAI(generalSE, subsetBy = sampleColumn, 
-                              groupList = rnaSamples)
-    rnaSE <-  subsetChAI(rnaSE, subsetBy = sampleColumn, 
-                              groupList = rnaSamples)
-    
-  }
-    
-  if(dim(rnaSE)[1] <3 | dim(generalSE)[1] < 3){
-   
-      stop('Too little overlap in samples between rnaSE and generalSE')
-      
-   }
 
   if(any(c(colnames(SummarizedExperiment::colData(generalSE)), 
       colnames(SummarizedExperiment::colData(rnaSE))) %in% c('exp1','exp2'))){
@@ -749,8 +523,12 @@ scRNA_Associations <- function(rnaSE, cellPopulation,
     Please remove these and try again.')
 
   }
+      
+      
+    geneList <- unique(geneList)
+    generalList <- unique(generalList)
 
-   #Test whether generalList and geneList are found in their assays.
+   #Test whether tileList and geneList are found in their assays.
   if(!all(geneList %in% rownames(rnaSE))){
      stop('geneList not found within rnaSE. Please read check that your genes of interest are present in rnaSE.')
   }
@@ -791,12 +569,12 @@ scRNA_Associations <- function(rnaSE, cellPopulation,
 
   #Test whether the continuousFormula is in the right format
   if(!(all.vars(stats::as.formula(modelFormula))[1] =='exp1' & any(all.vars(stats::as.formula(modelFormula)) %in% 'exp2'))){
-    stop('modelFormula is not in the correct format. Data from generalSE will be used to predict rnaSE, because rnaSE is more complicated to model. Please format modelFormula as exp1 ~ exp2 + OtherFixedEffects + RandomEffect.')
+    stop('modelFormula is not in the correct format. Data from rnaSE will be used to predict atacSE, because atacSE is more complicated to model. Please format modelFormula as exp1 ~ exp2 + OtherFixedEffects + RandomEffect.')
   }
 
   #Subset down each SummarizedExperiment to the rows of interest, and assays of interest. 
-  newGeneral <- newGeneral[rownames(newGeneral)  %in% unique(generalList), ]
-  newrnaSE <- newrnaSE[rownames(newrnaSE)  %in% unique(geneList), ]
+  newGeneral <- newGeneral[rownames(newGeneral)  %in% generalList, ]
+  newrnaSE <- newrnaSE[rownames(newrnaSE)  %in% geneList, ]
     
    if(sum(newrnaSE$CellCounts >=  cellCountThreshold) < 3){
 
@@ -812,11 +590,11 @@ scRNA_Associations <- function(rnaSE, cellPopulation,
   }
     
 
-  if(all(tolower(family) == 'negativebinomial2')){ 
+  if(tolower(family) == 'negativebinomial2'){ 
     family = glmmTMB::nbinom2()
-  }else if(all(tolower(family)== 'negativebinomial1')){
+  }else if(tolower(family)== 'negativebinomial1'){
     family = glmmTMB::nbinom1()
-  }else if(all(tolower(family) == 'poisson')){
+  }else if(tolower(family) == 'poisson'){
     family = stats::poisson()
   }else{
     stop('family not recognized.')
@@ -828,32 +606,17 @@ scRNA_Associations <- function(rnaSE, cellPopulation,
 
 
   if((any(all.vars(stats::as.formula(ziFormula)) %in% 'exp1'))){
-    stop('ziFormula is not in the correct format. exp1 represents rna data and should not be in the ziformula. Please format ziFormula as  ~ Factor1 + Factor2 + exp2. This is also optional and can be set to ~0 for non-zero-inflated modeling. ')
+    stop('ziFormula is not in the correct format. exp1 represents atac data and should not be in the ziformula. Please format ziFormula as  ~ Factor1 + Factor2 + exp2. This is also optional and can be set to ~0 for non-zero-inflated modeling. ')
   }
 
+
+  cl <- parallel::makeCluster(numCores)
 
   #Find all combinations of generalList and geneList to test.
   message('Compiling all pair-wise combinations')
+  allCombos <- do.call('rbind', pbapply::pblapply(cl = cl, X = generalList, findCombo, List2 = geneList))
 
-  if(allCombinations){
-    geneList <- unique(geneList)
-    generalList <- unique(generalList)
-      
-    cl <- parallel::makeCluster(numCores)
-
-    allCombos <- do.call('rbind', pbapply::pblapply(cl = cl, X = generalList, findCombo, List2 = geneList))
-    parallel::stopCluster(cl)
-      
-  }else if(length(generalList) == length(geneList)){
-
-    allCombos = data.frame(Var1 = generalList, Var2 = geneList)
-
-  }else{
-  
-    stop('Length of generalList and geneList are not the same, so direct pairwise combinations cannot be made. Please set them to be the same length or set allCombinations = TRUE.')
-      
-  }
-      
+  parallel::stopCluster(cl)
       
   geneAssociations <- .multiModalModeling(SE1 = newrnaSE, SE2=  newGeneral, 
                         sampleColumn =  sampleColumn, 
@@ -875,25 +638,19 @@ scRNA_Associations <- function(rnaSE, cellPopulation,
 #'
 #' @description \code{ChromVAR_Associations} High-throughput modeling motif z-score changes as a function of a feature from a General Modality
 #' @param chromSE A ChAI ChromVAR object (SummarizedExperiment object) from \code{makeChromVAR}
-#' @param cellPopulation - name(s) of the assay (cell population) to extract and use from chromSE, or the string 'All' if you want to model across all celltypes
+#' @param cellPopulation - name of the assay (cell population) to extract and use from atacSE
 #' @param generalSE A ChAI General modalityobject, generated by \code{makeChromVAR} or \code{importGeneralModality}
 #' @param generalAssay Name of the assay from generalSE that you wish to use for modeling.
 #' @param sampleColumn - A string: the name of the column with Sample names from the metadata. 
-#'                  Must be the same from chromSE and generalSE. This is used for aligning chromSE and generalSE.
-#' @param modelFormula : Formula used for modeling. Must be in the form exp1 ~ exp2 + other factors + (1|RandomEffect). 
+#'                  Must be the same from atacSE and generalSE. This is used for aligning atacSE and generalSE.
+#' @param modelFormulaa : Formula used for modeling. Must be in the form exp1 ~ exp2 + other factors + (1|RandomEffect). 
 #'          Exp1 will be the dummy variable for Motif Z-score, while exp2 will be the dummy variable for the general assay.
 #' @param motifList a list of motifs to test
 #' @param generalList A list of which rownames of generalAssay should be used for modeling associations. 
-#' @param allCombinations A boolean, whether to test all possible pair-wise combinations of tileList and generalList. Default is TRUE. If False, it will require tileList and generalList to be the same length, and only test index-matched pairs (i.e. tileList[2] vs generalList[2] )
 #' @param initialSampling An integer. Default is 5. Represents the number of initial models to test when generating a null set (which is used when models fails). If your model fails often, increase this number or choose a better formula.
 #' @param numCores Optional, the number of cores to use with multiprocessing. Default is 1.
 #'
-#' @return results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
-#'          including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
-#'          the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
-#'          Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
-#'          If multiple cell types are provided, then a named list of the above objects will be returned, one for each object. 
+#' @return A summarized experiment summarizing the output. 
 #'
 #'  
 #'
@@ -908,7 +665,6 @@ ChromVAR_Associations <- function(chromSE, cellPopulation,
                                     modelFormula, 
                                     motifList,
                                     generalList, 
-                                    allCombinations = TRUE,
                                     initialSampling = 5, numCores = 2) {
  
   if (!requireNamespace("MOCHA", quietly = TRUE)) {
@@ -930,20 +686,14 @@ ChromVAR_Associations <- function(chromSE, cellPopulation,
             nor a ChAI ChromVAR Object, generated by makeChromVAR.')
 
   }
+    
+  motifList <- unique(motifList)
+  generalList <- unique(generalList)
  
   if(!sampleColumn %in% colnames(SummarizedExperiment::colData(chromSE)) |
           !sampleColumn %in% colnames(SummarizedExperiment::colData(generalSE))){
 
-    stop('sampleColumn missing from chromSE and/or generalSE.')
-  }
-    
-    
-  ### The sample column must be unique identifiers for aligning samples. 
-  ### verify that this is true
-  if(any(duplicated(generalSE@colData[,sampleColumn])) | any(duplicated(chromSE@colData[,sampleColumn]))){
-  
-      stop('Duplicate values found with sampleColumn provided. Please ensure sample identifiers are unique within each object')
-      
+    stop('sampleColumn missing from atacSE and/or generalSE.')
   }
 
   #Check whether samples align.     
@@ -961,7 +711,7 @@ ChromVAR_Associations <- function(chromSE, cellPopulation,
       warning(stringr::str_interp('Some samples names in ${sampleColumn} are not the same between modalities. Non-matching names will be dropped'))
       chromDropped = chromSE@colData[,sampleColumn] %in% generalSE@colData[,sampleColumn]
       generalDropped = generalSE@colData[,sampleColumn] %in% chromSE@colData[,sampleColumn]
-      warning(stringr::str_interp(' ${sum(!chromDropped)} and ${sum(!generalDropped)} sample(s) dropped from chromSE and generalSE, respectively'))
+      warning(stringr::str_interp(' ${sum(!chromDropped)} and ${sum(!generalDropped)} sampled dropped from chromSE and generalSE, respectively'))
 
       generalSE <- subsetChAI(generalSE, subsetBy = sampleColumn, 
                               groupList = partialMatch)
@@ -971,82 +721,16 @@ ChromVAR_Associations <- function(chromSE, cellPopulation,
 
   if(!all(chromSE@colData[,sampleColumn] == generalSE@colData[,sampleColumn])){
 
-      message('Re-ordering generalSE sample names to match chromSE.')
+      warning('Reording generalSE sample names to match atacSE.')
       generalSE <- generalSE[,order(generalSE@colData[,sampleColumn])]
-      chromOrder = order(chromSE@colData[,sampleColumn])
-      chromSE <- chromSE[,chromOrder]
-      chromSE@metadata$summarizedData =  chromSE@metadata$summarizedData[,chromOrder]
-      chromSE@metadata$detectionRate =  chromSE@metadata$detectionRate[chromOrder,]
-  }
-       
-       
-   if(all(tolower(cellPopulation) == 'all')){
-   
-      cellPopulation = SummarizedExperiment::assayNames(chromSE)
-      
-  }
-      
-  if(!all(cellPopulation %in% SummarizedExperiment::assayNames(chromSE))){
-   
-      stop('cellPopulation not found within rnaSE object')
-      
-  }
-      
-  #If multiple cell types, then loop over all and return a list of model objects. 
-  if(length(cellPopulation) > 1){
-    
-    allRes = lapply(cellPopulation, function(XX){
-            message(stringr::str_interp('Modeling ${XX}'))
-            tryCatch({
-                gc()
-                
-                if(all(names(motifList) %in% cellPopulation) & all(!is.null(names(motifList)))){
-                    subMotifs = motifList[[XX]]
-                }else{
-                    
-                    subMotifs = motifList
-                }
-                
-                 if(all(names(generalList) %in% cellPopulation)  & all(!is.null(names(generalList)))){
-                    subGeneral = generalList[[XX]]
-                }else{
-                    
-                    subGeneral = generalList
-                }
-                
-                ChromVAR_Associations(chromSE, cellPopulation = XX, 
-                        generalSE, generalAssay,
-                        sampleColumn, 
-                        modelFormula, 
-                        motifList = subMotifs,
-                        generalList = subGeneral, 
-                        allCombinations = allCombinations,
-                        initialSampling = initialSampling, numCores = numCores)
-            }, error = function(e){e})
-        })
-    names(allRes) = cellPopulation
-    return(allRes)
-    
-  }
-       
-  #Check for samples that had no cells for a given cell type (scRNA) or less than or equal to 5 cells for scATAC/ChromVAR.
-  emptySamples1 <- unlist(SummarizedExperiment::assays(chromSE@metadata$summarizedData)[['CellCounts']][cellPopulation,]) <= 5
-                                
-  if(any(emptySamples1)){
-    warning(stringr::str_interp('Different number of empty samples across modalities. This can occur when no cells were detected in a given sample of scRNA, or 5 or less in scATACseq. Subsetting will occur now.'))
-    chromSamples <- colnames(chromSE)[which(!emptySamples1)]
-    generalSamples <- colnames(generalSE)[which(!emptySamples1)]
-    
-    chromSE <- subsetChAI(chromSE, subsetBy = 'Sample', groupList = chromSamples)
-    generalSE <- subsetChAI(generalSE, subsetBy = 'Sample', groupList = generalSamples)
-    
+      chromSE <- chromSE[,order(chromSE@colData[,sampleColumn])]
   }
 
   if(any(c(colnames(SummarizedExperiment::colData(chromSE)), 
       colnames(SummarizedExperiment::colData(generalSE))) %in% c('exp1','exp2'))){
 
-    stop('metadata of chromSE and/or generalSE contains a column that contains the name exp1 or exp2.',
-    'exp1 and exp2 are hardcoded to represent the data from chromSE and generalSE, not the metadata.
+    stop('metadata of atacSE and/or generalSE contains a column that contains the name exp1 or exp2.',
+    'exp1 and exp2 are hardcoded to represent the data from atacSE and generalSE, not the metadata.
     Please remove these and try again.')
 
   }
@@ -1074,7 +758,10 @@ ChromVAR_Associations <- function(chromSE, cellPopulation,
   } else if ( !generalAssay %in% names(SummarizedExperiment::assays(generalSE))){
      stop(stringr::str_interp("!{generalAssay} was not found within generalSE."))
 
-  } else{
+  } else if(cellPopulation == 'counts'){
+    newchromSE <- chromSE
+    
+  }else{
     newchromSE <- flattenChAI(chromSE, cellPopulations = cellPopulation)
    
   }
@@ -1082,40 +769,28 @@ ChromVAR_Associations <- function(chromSE, cellPopulation,
   SummarizedExperiment::assays(newGeneral) <- SummarizedExperiment::assays(newGeneral)[generalAssay]
 
   if(!all(motifList %in% rownames(newchromSE))){
-     stop('motifList not found within chromSE.  Please read check that your tiles of interest are present in chromSE.')
+     stop('motifList not found within chromSE.  Please read check that your tiles of interest are present in atacSE.')
   }
 
 
   #Test whether the modelFormula is in the right format
   if(!(all.vars(stats::as.formula(modelFormula))[1] =='exp1' & any(all.vars(stats::as.formula(modelFormula)) %in% 'exp2'))){
-    stop('modelFormula is not in the correct format. Data from generalSE will be used to predict chromSE, because chromSE is more complicated to model. Please format modelFormula as exp1 ~ exp2 + OtherFixedEffects + RandomEffect.')
+    stop('modelFormula is not in the correct format. Data from generalSE will be used to predict atacSE, because atacSE is more complicated to model. Please format modelFormula as exp1 ~ exp2 + OtherFixedEffects + RandomEffect.')
   }
 
   #Subset down each SummarizedExperiment to the rows of interest, and assays of interest. 
-  newchromSE <- newchromSE[rownames(newchromSE)  %in% unique(motifList), ]
-  newGeneral <- newGeneral[rownames(newGeneral)  %in% unique(generalList), ]
+  newchromSE <- newchromSE[rownames(newchromSE)  %in% motifList, ]
+  newGeneral <- newGeneral[rownames(newGeneral)  %in% generalList, ]
+
+
+  #Find all combinations of tileList and geneList to test. 
+  cl <- parallel::makeCluster(numCores)
 
   #Find all combinations of tileList and geneList to test.
   message('Compiling all pair-wise combinations')
-  
-  if(allCombinations){
-    motifList <- unique(motifList)
-    generalList <- unique(generalList)
-      #Find all combinations of tileList and motifList to test. 
-      cl <- parallel::makeCluster(numCores)
-    allCombos <- do.call('rbind', pbapply::pblapply(cl = cl, X = generalList, findCombo, List2 = motifList))
-      parallel::stopCluster(cl)
-      
-  }else if(length(generalList) == length(motifList)){
+  allCombos <- do.call('rbind', pbapply::pblapply(cl = cl, X = generalList, findCombo, List2 = motifList))
 
-    allCombos = data.frame(Var1 = generalList, Var2 = motifList)
-
-  }else{
-      
-      stop('Length of generalList and motifList are not the same, so direct pairwise combinations cannot be made. Please set them to be the same length or set allCombinations = TRUE.')
-  }
-      
-
+  parallel::stopCluster(cl)
 
   chromSE_Assoc <- .multiModalModeling(SE1 = newchromSE, SE2 = newGeneral, sampleColumn = sampleColumn,
                           allCombos = allCombos, continuousFormula =  modelFormula,
@@ -1140,20 +815,15 @@ ChromVAR_Associations <- function(chromSE, cellPopulation,
 #' @param sampleColumn - A string: the name of the column with Sample names from the metadata. 
 #'                  Must be the same from SE1 and SE2. This is used for aligning SE1 and SE2
 #' @param modelFormula : Formula used for modeling. Must be in the form exp1 ~ exp2 + other factors + (1|RandomEffect)
-#' @param ziFormula Zi Formula to test for zero-inflation within generalSE
+#' @param ziFormula list of  to tests from atacSE to test. 
 #' @param sig1 A list of rows from SE1 to test. 
 #' @param sig2 A list of rows from SE2 to test. 
-#' @param allCombinations A boolean, whether to test all possible pair-wise combinations of  sig1 and  sig2. Default is TRUE. If False, it will require sig1 and sig2 to be the same length, and only test index-matched pairs (i.e. sig1[2] vs  sig2[2] )
 #' @param family distribution family parameter, passed to glmmTMB to describe the data's distribution.
 #'     Default is normal (gaussian()). See  \link[glmmTMB]{glmmTMB}.
 #' @param initialSampling An integer. Default is 5. Represents the number of initial models to test when generating a null set (which is used when models fails). If your model fails often, increase this number or choose a better formula.
 #' @param numCores Optional, the number of cores to use with multiprocessing. Default is 1.
 #'
-#' @return results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
-#'          including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
-#'          the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
-#'          Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
+#' @return A summarized experiment summarizing the output. 
 #'
 #'
 #'
@@ -1163,30 +833,19 @@ ChromVAR_Associations <- function(chromSE, cellPopulation,
 General_Associations <- function(SE1, SE2, assay1, assay2, sampleColumn, 
                                  modelFormula, 
                                  ziFormula = ~0 ,
-                                 sig1, sig2, 
-                                 allCombinations = TRUE,
-                                 family = stats::gaussian(), initialSampling = 5, numCores) {
+                                 sig1, sig2, family = stats::gaussian(), initialSampling = 5, numCores) {
   
 
-  if(!isChAIObject(SE1, type = 'data', returnType = TRUE) %in%  c('General','Transformed')){
+  if(isChAIObject(SE1, type = 'data', returnType = TRUE) != 'General'){
 
     stop('SE1 is not a ChAI General Modality Object, generated via importGeneralModality.')
   
 
-  }else if(! isChAIObject(SE2, type = 'data', returnType = TRUE) %in% c('General', 'ChromVAR','Transformed')){
+  }else if(! isChAIObject(SE2, type = 'data', returnType = TRUE) %in% c('General', 'ChromVAR')){
 
     stop('SE2 is neither a ChAI General Modality Object, generated via importGeneralModality, nor 
             a ChAI ChromVAR object, generated via makeChromVAR.')
   
-  }
-      
-    
-  ### The sample column must be unique identifiers for aligning samples. 
-  ### verify that this is true
-  if(any(duplicated(SE1@colData[,sampleColumn])) | any(duplicated(SE2@colData[,sampleColumn]))){
-  
-      stop('Duplicate values found with sampleColumn provided. Please ensure sample identifiers are unique within each object')
-      
   }
       
    #Check whether samples align.     
@@ -1202,19 +861,22 @@ General_Associations <- function(SE1, SE2, assay1, assay2, sampleColumn,
       warning(stringr::str_interp('Some samples names in ${sampleColumn} are not the same between modalities. Non-matching names will be dropped'))
       dropped = SE2@colData[,sampleColumn] %in% SE1@colData[,sampleColumn]
       generalDropped = SE1@colData[,sampleColumn] %in% SE2@colData[,sampleColumn]
-      warning(stringr::str_interp(' ${sum(!dropped)} and ${sum(!generalDropped)} sample(s) dropped from SE2 and SE1, respectively'))
+      warning(stringr::str_interp(' ${sum(!dropped)} and ${sum(!generalDropped)} sampled dropped from SE2 and SE1, respectively'))
 
-      SE1 <- subsetChAI(SE1, subsetBy = sampleColumn, 
+      SE1 <- subsetMOCHAObject(SE1, subsetBy = sampleColumn, 
                               groupList = partialMatch)
-      SE2 <- subsetChAI(SE2, subsetBy = sampleColumn, 
+      SE2 <-  subsetChAI(SE2, subsetBy = sampleColumn, 
                               groupList = partialMatch)
     }
 
  if(!all(SE1@colData[,sampleColumn] == SE2@colData[,sampleColumn])){
-      message('Reordering SE1 and SE2 to match each other.')
+      warning('Reording SE1 and SE2 to match.')
       SE1 <- SE1[,order(SE1@colData[,sampleColumn])]
       SE2 <- SE2[,order(SE2@colData[,sampleColumn])]
   }
+
+  sig1 = unique(sig1)
+  sig2 = unique(sig2)
 
   if(any(c(colnames(SummarizedExperiment::colData(SE1)), 
       colnames(SummarizedExperiment::colData(SE2))) %in% c('exp1','exp2'))){
@@ -1245,40 +907,26 @@ General_Associations <- function(SE1, SE2, assay1, assay2, sampleColumn,
 
 
   if((any(all.vars(stats::as.formula(ziFormula)) %in% 'exp1'))){
-    stop('ziFormula is not in the correct format. exp1 should not be in the ziformula. Please format ziFormula as  ~ Factor1 + Factor2 + exp2. This is also optional and can be set to ~0 for non-zero-inflated modeling. ')
+    stop('ziFormula is not in the correct format. exp1 represents atac data and should not be in the ziformula. Please format ziFormula as  ~ Factor1 + Factor2 + exp2. This is also optional and can be set to ~0 for non-zero-inflated modeling. ')
   }
 
 
 
   #Subset down each SummarizedExperiment to the rows of interest, and assays of interest. 
-  newSE1 <- SE1[rownames(SE1)  %in% unique(sig1), ]
-  newSE2 <- SE2[rownames(SE2)  %in% unique(sig2), ]
+  newSE1 <- SE1[rownames(SE1)  %in% sig1, ]
+  newSE2 <- SE2[rownames(SE2)  %in% sig2, ]
   SummarizedExperiment::assays(newSE1) <- SummarizedExperiment::assays(newSE1)[assay1]
   SummarizedExperiment::assays(newSE2) <- SummarizedExperiment::assays(newSE2)[assay2]
 
+  cl <- parallel::makeCluster(numCores)
+
+  #Find all combinations of sig1 and sig2 to test. 
+  message('Compiling all pair-wise combinations')
     
-  if(allCombinations){
+  allCombos <- do.call('rbind', pbapply::pblapply(cl = cl, X = sig2, findCombo, List2 = sig1))
 
-      sig1 = unique(sig1)
-      sig2 = unique(sig2)
-     cl <- parallel::makeCluster(numCores)
-      #Find all combinations of sig1 and sig2 to test. 
-      message('Compiling all pair-wise combinations')
+  parallel::stopCluster(cl)
 
-      allCombos <- do.call('rbind', pbapply::pblapply(cl = cl, X = sig2, findCombo, List2 = sig1))
-
-      parallel::stopCluster(cl)
-      
-  }else if(length(sig1) == length(sig2)){
-
-        allCombos = data.frame(Var1 = sig2, Var2 = sig1)
-
-  }else{
-      
-      stop('Length of sig1 and sig2 are not the same, so direct pairwise combinations cannot be made. Please set them to be the same length or set allCombinations = TRUE.')
-      
-  }
-    
     
   generalAssociations <- .multiModalModeling(SE1 = newSE1, SE2 = newSE2, 
                         allCombos = allCombos, 
@@ -1466,7 +1114,7 @@ individualAssociations <- function(df, continuousFormula1, ziFormula1, family1, 
           control = glmmTMB::glmmTMBControl(parallel = 1)
         )
         
-        sigZI <- DHARMa::testZeroInflation(modelRes,plot = FALSE)$p.value < 0.05
+        sigZI <- DHARMa::testZeroInflation(modelRes)$p.value < 0.05
           
       }else{
       
@@ -1580,19 +1228,6 @@ individualAssociations <- function(df, continuousFormula1, ziFormula1, family1, 
   return(output_vector)
 }
 
-
-#' @title \code{alignSamples}
-#'
-#' @description \code{alignSamples} Subsets two summarized experiments to matching samples and aligns them in the same order
-#' @param SE1 
-#' @param SE2 
-
-#'
-#' @return A summarized experiment summarizing the output. 
-#'
-#'
-#' @noRd
-
 #' @title \code{multiModalModeling}
 #'
 #' @description \code{multiModalModeling} allows for generalized linear mixed effect modeling across multiple modalities,
@@ -1613,7 +1248,7 @@ individualAssociations <- function(df, continuousFormula1, ziFormula1, family1, 
 #'
 #' @noRd
 
-.multiModalModeling <- function(SE1, SE2, allCombos, sampleColumn, continuousFormula, ziFormula, zi_threshold, initialSampling, family, modality, numCores=1) {
+.multiModalModeling <- function(SE1, SE2, allCombos, sampleColumn, continuousFormula, ziFormula, zi_threshold, initialSampling, family, modality, numCores) {
   
   if(any(dim(allCombos) ==0)){
     stop('No combinations found, so there is nothing to test for associations. Please check that the input lists are not empty.')
@@ -1629,14 +1264,22 @@ individualAssociations <- function(df, continuousFormula1, ziFormula1, family1, 
   if(any(modality %in% c('GeneTile'))){
     mat2 <- log2(mat2 + 1)
   }
-    
-  ### The sample column must be unique identifiers for aligning samples. 
-  ### verify that this is true
-  if(any(duplicated(SE1@colData[,sampleColumn])) | any(duplicated(SE2@colData[,sampleColumn]))){
-  
-      stop('Duplicate values found with sampleColumn provided. Please ensure sample identifiers are unique within each object')
-      
+
+  emptySamples1 <- unlist(apply(mat1, 2, function(x) all(x == 0)))
+  emptySamples2 <- unlist(apply(mat2, 2, function(x) all(x == 0)))
+                                
+  if(sum(emptySamples1) != sum(emptySamples2)){
+    warning(stringr::str_interp('Different number of empty samples across modalities. Associative modeling cannot occur. This can occur when no cells were detected in a given sample of scATAC or scRNA. It would be better to subset before modeling.'))
+     mat1 <- mat1[,which(!emptySamples1 | !emptySamples2)]
+     mat2 <- mat2[,which(!emptySamples1 | !emptySamples2)]
+  } else if(any(emptySamples1)){
+    warning(stringr::str_interp('!{sum(emptySamples1)} empty/missing samples found (only zero values). Removing these samples.'))
+    mat1 <- mat1[,!emptySamples1]
+  } else if(any(emptySamples2)){
+     warning(stringr::str_interp('!{sum(emptySamples2)} empty/missing samples found (only zero values). Removing these samples.'))
+    mat2 <- mat2[,!emptySamples2]
   }
+
 
   metaData1 <- SummarizedExperiment::colData(SE1)
   metaData2 <- SummarizedExperiment::colData(SE2)
@@ -1650,16 +1293,15 @@ individualAssociations <- function(df, continuousFormula1, ziFormula1, family1, 
   }
                                 
 
-  ## Log transform the FragmentNumbers so as to stabilize the model. But only if FragmentCounts is in the model. Same for CellCounts.
-  if(any(colnames(metaData) %in% c('FragmentCounts'))){
-    metaData$rawFragmentCounts = metaData$FragmentCounts
-    metaData$FragmentCounts <- log10(metaData$FragmentCounts + 1)
+  ## Log transform the FragmentNumbers so as to stabilize the model. But only if FragNumber is in the model. Same for CellCounts.
+  if(any(colnames(metaData) %in% c('FragNumber'))){
+    metaData$rawFragNumber = metaData$FragNumber
+    metaData$FragNumber <- log10(metaData$FragNumber)
   }
   if(any(colnames(metaData) %in% c('CellCounts'))){
     metaData$rawCellCounts = metaData$CellCounts
-    metaData$CellCounts <- log10(metaData$CellCounts +1)
+    metaData$CellCounts <- log10(metaData$CellCounts)
   }
-
 
   if(numCores <= 1){
     stop('numCores must be greater than 1. This method is meant to be parallelized.')
@@ -1696,30 +1338,20 @@ individualAssociations <- function(df, continuousFormula1, ziFormula1, family1, 
                
                 
   message('Joining data for each pair.')
-                         
-
+    
   comboList = pbapply::pblapply(cl = NULL, X = c(1:dim(allCombos)[1]), function(x){
         
-      newIndex = rev(as.character(unlist(allCombos[x,])))
+       newIndex = rev(as.character(unlist(allCombos[x,])))
       data.frame(exp1 = unlist(mat1[newIndex[[1]],]), exp2 = unlist(mat2[newIndex[[2]],]), metaData, stringsAsFactors= FALSE)
       
       })       
-                                  
+                                
   names(comboList) <- unlist(lapply(1:dim(allCombos)[1], function(x) 
-              paste(rev(as.character(unlist(allCombos[x,]))),collapse = '__')
+              paste(rev(as.character(unlist(allCombos[x,]))),collapse = '_')
       ))
 
-
-
   #Pull out random pairs to test for the null template
-  #if too few comparisons, then set initial sampling to be all combinations. 
-  if(initialSampling > length(allCombos)){
-  
-      initialSampling = length(allCombos)
-      
-  }
   pilotIndices <- sample(x = 1:dim(allCombos)[1], size = initialSampling, replace = FALSE)
-      
                                 
   #Generate the nullDFList, incase of model failure. 
   nullDFList <- generateNULL_Associations(pilotCombos = comboList[pilotIndices],
@@ -1760,7 +1392,7 @@ individualAssociations <- function(df, continuousFormula1, ziFormula1, family1, 
     #No row data available
     allRowData = data.frame(Obj1 = allCombos$Var2, 
                             Obj2 = allCombos$Var1)
-    rownames(allRowData) = paste(allCombos$Var2,  allCombos$Var1, sep = "__")
+    rownames(allRowData) = paste(allCombos$Var2,  allCombos$Var1, sep = "_")
       
   }else if(any(dim(rowData1) ==0)){
     #Only rowData from SE2
@@ -1768,7 +1400,7 @@ individualAssociations <- function(df, continuousFormula1, ziFormula1, family1, 
     allRowData$Obj2 = allCombos$Var1
     allRowData = cbind(data.frame(Obj1 = allCombos$Var2), 
                     allRowData)
-    rownames(allRowData) = paste(allCombos$Var2,  allCombos$Var1, sep = "__")
+    rownames(allRowData) = paste(allCombos$Var2,  allCombos$Var1, sep = "_")
     
       
   }else if(any(dim(rowData2) ==0)){
@@ -1777,7 +1409,7 @@ individualAssociations <- function(df, continuousFormula1, ziFormula1, family1, 
     allRowData$Obj1 = allCombos$Var2
     allRowData = cbind(allRowData,
                        data.frame(Obj2 = allCombos$Var1))
-    rownames(allRowData) = paste(allCombos$Var2,  allCombos$Var1, sep = "__")
+    rownames(allRowData) = paste(allCombos$Var2,  allCombos$Var1, sep = "_")
 
   }else{
 
@@ -1785,12 +1417,12 @@ individualAssociations <- function(df, continuousFormula1, ziFormula1, family1, 
         match(allCombos$Var2, rownames(rowData1)),,drop=FALSE])
     colnames(allRowData1) <- colnames(rowData1)
     allRowData1$Obj1 = allCombos$Var2
-    rownames(allRowData1) = paste(allCombos$Var2,  allCombos$Var1, sep = "__")
+    rownames(allRowData1) = paste(allCombos$Var2,  allCombos$Var1, sep = "_")
     allRowData2 <-  as.data.frame(rowData2[
         match(allCombos$Var1, rownames(rowData2)),,drop=FALSE])
     colnames(allRowData2) <- colnames(rowData2)
     allRowData2$Obj2 = allCombos$Var1
-    rownames(allRowData2) = paste(allCombos$Var2,  allCombos$Var1, sep = "__")
+    rownames(allRowData2) = paste(allCombos$Var2,  allCombos$Var1, sep = "_")
     allRowData <- cbind(allRowData1, allRowData2)
   }
       

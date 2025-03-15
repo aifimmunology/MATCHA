@@ -7,15 +7,6 @@
 #' @param sampleColumn String. Name of the column that has Sample-level metadata. Default is Sample. Will overwrite any column that has Sample already present. 
 #' @return A SummarizedExperiment with all your data inerwoven with the MetaData
 #'
-#' @examples
-#' \dontrun{
-#'   olinkMat <- read.csv('olink_covid_olink.csv',row.names =1)
-#'   olinkMeta <-  read.csv('olink_covid_olink_metadata.csv')
-#' 
-#'   #Align the column names of the data frame to the rownames of the meta data frame. 
-#'   olinkMeta$Sample <- paste('X', olinkMeta$patientID_Visit,sep ='')
-#'   olinkSE <- importGeneralModality(olinkMat, olinkMeta, 'Sample')
-#' }
 #'
 #' @keywords data_import
 #'
@@ -27,11 +18,6 @@ importGeneralModality <- function(DataMatrix, MetaData, sampleColumn = 'Sample')
     
     if(!methods::is(MetaData, 'data.frame')){
         stop('MetaData is not a data.frame. MetaDatamust be a data.frame object.')
-    }
-    
-        
-    if(any(is.na(MetaData[,sampleColumn]))){
-        stop('NAs are present in the provided sampleColumn. Please remove.')
     }
 
     if( methods::is(DataMatrix, 'data.frame') |  methods::is(DataMatrix, 'data.table') |  methods::is(DataMatrix, 'matrix')){
@@ -45,8 +31,7 @@ importGeneralModality <- function(DataMatrix, MetaData, sampleColumn = 'Sample')
 
             stop('sampleColumn does not exist in MetaData')
 
-        }else if('Sample' %in% colnames(MetaData)  & 
-                 'Sample' != sampleColumn){
+        }else if('Sample' %in% colnames(MetaData)){
         
             if(!all(MetaData[,sampleColumn] == MetaData[,'Sample'])){
             warning(stringr::str_interp("${sampleColumn} and Sample column in the MetaData data do not match. Over-writing MetaData column named 'Sample' since sampleColumn = 'Sample'"))
@@ -92,15 +77,13 @@ importGeneralModality <- function(DataMatrix, MetaData, sampleColumn = 'Sample')
         }
             
         #Set the SampleColumn in MetaData so that the data and metadata are aligned.
-        if(!'Sample' %in% colnames(MetaData) & 
-           sampleColumn %in% colnames(MetaData)){
+        if(!'Sample' %in% colnames(MetaData) & sampleColumn %in% colnames(MetaData)){
             MetaData$Sample = unlist(MetaData[,sampleColumn])
         }else if(!sampleColumn %in% colnames(MetaData)){
 
             stop('sampleColumn does not exist in MetaData')
 
-        }else if('Sample' %in% colnames(MetaData) & 
-                 'Sample' != sampleColumn){
+        }else if('Sample' %in% colnames(MetaData)){
         
             if(!all(MetaData[,sampleColumn] == MetaData[,'Sample'])){
             warning(stringr::str_interp("${sampleColumn} and Sample column in the MetaData data do not match. Over-writing MetaData column named 'Sample' since sampleColumn = 'Sample'"))
@@ -150,7 +133,7 @@ importGeneralModality <- function(DataMatrix, MetaData, sampleColumn = 'Sample')
 #' @param FDR_threshold Threshold of determining significance.Default is 0.1 
 #' @param filterFactors A optional list of strings, describing the factors you do not to select for. If a given measurement is below the backgroundThreshold for that factor, it will be removed.
 #' @param backgroundThreshold An optional background threshold that determines how stringently you want to remove measurements if they related to any of the filterFactors, based on their FDR. Standard threshold is 0.1
-#' @param numCores If there are multiple celltypes, then it will parallelize the pulling out of estimates across cell types. 
+
 #'
 #' @return data frame of coefficient values for a given factor, filtered by an FDR threshold and by the lack of relationship to other factors, if provided. 
 #'
@@ -166,7 +149,7 @@ importGeneralModality <- function(DataMatrix, MetaData, sampleColumn = 'Sample')
 #' @keywords model_results
 
 getEstimates <- function(modelSE, factor = 'exp2', FDR_threshold = 0.1, 
-                            filterFactors = NULL, backgroundThreshold = 0.1, numCores =1){
+                            filterFactors = NULL, backgroundThreshold = 0.1){
 
     #Make sure FDR_threshold and backgroundThreshold are numeric between 0 and 1.
     if(!is.numeric(FDR_threshold)){
@@ -182,60 +165,6 @@ getEstimates <- function(modelSE, factor = 'exp2', FDR_threshold = 0.1,
     }
 
     model_type <- isChAIObject(modelSE, type= 'model', returnType = TRUE)
-
-    #If modelSE isn't a ChAI model object, then see if it's a list of model objects. 
-    if(model_type != FALSE & methods::is(modelSE, 'list')){
-        
-        ## Check if all indices of the list are either ChAI model objects or an error message. 
-        allModels = unlist(lapply(modelSE, function(XX) 
-                            if(!methods::is(XX, 'simpleError')){
-                                isChAIObject(XX, type= 'model', returnType = TRUE)
-                           }else {return('Error')}))
-                                  
-        if(any(allModels == FALSE)){
-           stop('modelSE is not a ChAI model output, or a list of such outputs.')
-        }else if(any(allModels == 'Error')){
-        
-            warning('modelSE is a list with models, including several that failed. Skipping these models.')
-        
-            modelSE = modelSE[allModels != 'Error']
-            allModels = allModels[allModels != 'Error']
-            
-        }
-        if(length(unique(allModels)) > 1){
-         
-            stop('Multiple classes of models found. modelSE should be either be one ChAI model, or ',
-                 'a list of the ChAI models with the same modality')
-        }
-        ## check model factors
-        modelFactors = unique(unlist(lapply( X = modelSE, SummarizedExperiment::assayNames)))
-        if(!all(factor %in% modelFactors)){
-            stop(stringr::str_interp('${factor} was not modeled within this modelSE provided.'))
-        }
-            
-        if(numCores == 1){
-            numCores = NULL
-        }
-        allRes = do.call('rbind',pbapply::pblapply(cl = numCores,
-            X = names(modelSE), function(XX){
-                tryCatch({
-                    gc()
-                    tmpMat = getEstimates(modelSE[[XX]], factor = factor, FDR_threshold = FDR_threshold, 
-                                filterFactors = filterFactors, backgroundThreshold = backgroundThreshold)
-                    if(dim(tmpMat)[1] > 0){
-                    
-                        tmpMat$CellType = XX
-                        
-                    }
-                    tmpMat
-
-                }, error = function(e){NULL}) 
-            }))
-        return(allRes)
-    
-  }
-        
-
 
     if(!any(names(SummarizedExperiment::assays(modelSE)) %in% factor)){
         stop(stringr::str_interp('${factor} was not modeled within this modelSE provided.'))
@@ -262,37 +191,34 @@ getEstimates <- function(modelSE, factor = 'exp2', FDR_threshold = 0.1,
 
     } else if(model_type %in% c('GeneTile')){
 
-        mat1$Tiles = gsub("__.*","", mat1$Obj)
-        mat1$Genes = gsub(".*__","", mat1$Obj)
+        mat1$Tiles = gsub("_.*","", mat1$Obj)
+        mat1$Genes = gsub(".*_","", mat1$Obj)
 
     } else if(model_type %in% c('scATAC_Associations')){
 
-        mat1$Tiles = gsub("__.*","", mat1$Obj)
-        mat1$General = gsub(".*__","", mat1$Obj)
+        mat1$Tiles = gsub("_.*","", mat1$Obj)
+        mat1$General = gsub(".*_","", mat1$Obj)
 
     } else if(model_type %in% c('scRNA_Associations')){
 
-        mat1$Genes = gsub("__.*","", mat1$Obj)
-        mat1$General = gsub(".*__","", mat1$Obj)
+        mat1$Genes = gsub("_.*","", mat1$Obj)
+        mat1$General = gsub(".*_","", mat1$Obj)
 
     }else if(model_type %in% c('ChromVAR_Associations')){
 
-        mat1$TFs = gsub("__.*","", mat1$Obj)
-        mat1$General = gsub(".*__","", mat1$Obj)
+        mat1$TFs = gsub("_.*","", mat1$Obj)
+        mat1$General = gsub(".*_","", mat1$Obj)
 
     } else if(model_type %in% c('General_Associations')){
 
-        mat1$Modality1 = gsub("__.*","", mat1$Obj)
-        mat1$Modality2 = gsub(".*__","", mat1$Obj)
+        mat1$Modality1 = gsub("_.*","", mat1$Obj)
+        mat1$Modality2 = gsub(".*_","", mat1$Obj)
         
     }else{
 
-        stop('Model type not recognized. Please check whether this was generated by a ChAI association or model function.')
+        stop('association type not recognized. Please check whether this was generated by a ChAI association function.')
 
     }
-        
-    if(FDR_threshold == 1){ FDR_threshold = 1.1 }
-    if(FDR_threshold == 0){ FDR_threshold = -0.1 }
 
     if(!is.null(filterFactors)){
 

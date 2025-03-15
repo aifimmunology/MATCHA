@@ -7,17 +7,17 @@
 #' @param cellPopulation Name of a cell type within the atacSE
 #' @param modelFormula The formula for the continuous data that should be used within glmmTMB. It should be in the
 #'   format (exp ~ factors). All factors must be found in column names
-#'   of the atacSE metadata, except for CellType, FragmentCounts and CellCount, which will be extracted from the atacSE.
+#'   of the atacSE metadata, except for CellType, FragNumber and CellCount, which will be extracted from the atacSE.
 #'   modelFormula must start with 'exp' as the response.
 #'   See \link[glmmTMB]{glmmTMB}.
 #' @param ziFormula The formula for the zero-inflated data that should be used within glmmTMB. It should be in the
 #'   format ( ~ factors). All factors must be found in column names
-#'   of the atacSE colData metadata, except for CellType, FragmentCounts and CellCount, which will be extracted from the atacSE.
-#'   FragmentCounts and CellCounts will be log10 normalized within the function. 
+#'   of the atacSE colData metadata, except for CellType, FragNumber and CellCount, which will be extracted from the atacSE.
+#'   FragNumber and CellCounts will be log10 normalized within the function. 
 #' @param zi_threshold Zero-inflated threshold ( range = 0-1), representing the fraction of samples with zeros. At or above this threshold, the zero-inflated modeling kicks in.
 #' @param verbose Set TRUE to display additional messages. Default is FALSE.
 #' @param numCores Number of cores to provide to glmmTMB for parallelization. 
-#' @param featureSample integer or the output of a previous run of pilot_scATAC, if you want to test the exact same features as before. If integer, stratified sampling will occur to identify features to test, with a minimum of 10. If a previous run, then previous run must be on the same cell types as before.
+#' @param featureSample integer or vector of characters describing the features to test. If integer, stratified sampling will occur to identify features to test, with a minimum of 10. If a character vector, then all strings must align to features you want to test. 
 #'
 #' @return results model results
 #'
@@ -28,7 +28,7 @@
 #'   modelList <- pilot_scATAC(STM, 
 #'                            'CD16 Mono',
 #'                            exp~ Age + Sex + days_since_symptoms + (1|PTID),
-#'                             ~ 0 + FragmentCounts, verbose = TRUE )
+#'                             ~ FragNumber, verbose = TRUE )
 #' }
 #'
 #' @export
@@ -68,69 +68,21 @@ pilot_scATAC <- function(atacSE,
     stop("zi_threshold must be between 0 and 1.")
   }
 
- ## Evaluate cellPopulations. 
-  if(all(tolower(cellPopulation) == 'all')){
-   
-      cellPopulation = SummarizedExperiment::assayNames(atacSE)
-      
-  }
-    
-      
-  if(!all(cellPopulation %in% SummarizedExperiment::assayNames(atacSE))){
-   
-      stop('cellPopulation not found within atacSE object')
-      
-  }
-    
-  if(!methods::is(featureSample, 'numeric')){
-      
-     if(all(!cellPopulation %in% names(featureSample)) & cellPopulation > 1){
-   
-          stop('cellPopulation not found within atacSE object')
-    }
-      
-  }
-      
-  #If multiple cell types, then loop over all and return a list of model objects. 
-  if(length(cellPopulation) > 1){
-    
-    allRes = lapply(cellPopulation, function(XX){
-            message(stringr::str_interp('Modeling ${XX}'))
-            tryCatch({
-                gc()
-                
-                featureSample1 = ifelse(methods::is(featureSample, 'numeric'), featureSample, featureSample[[XX]])
-
-                pilot_scATAC(atacSE,
-                      cellPopulation = XX,
-                      modelFormula = modelFormula,
-                      ziFormula = ziFormula,
-                      zi_threshold = zi_threshold,
-                      featureSample = featureSample1,
-                      verbose = verbose,
-                      numCores = numCores)
-                }, error = function(e){e})
-        })
-    names(allRes) = cellPopulation
-    return(allRes)
-    
+ if (length(cellPopulation) > 1) {
+    stop(
+      "More than one cell population was provided. ",
+      "cellPopulation must be length 1. To run over multiple cell types, ",
+      "user MOCHA to run combineSampleTileMatrix() to produce a new combined atacSE and set ",
+      "cellPopulation = 'counts'."
+    )
+  } else if (
+    (!cellPopulation %in% names(SummarizedExperiment::assays(atacSE)))
+  ) {
+    stop("cellPopulation was not found within atacSE.")
   } else if(cellPopulation == 'counts'){
     newObj <- atacSE
   }else{
     newObj <- MOCHA::combineSampleTileMatrix(MOCHA::subsetMOCHAObject(atacSE, subsetBy = 'celltype', groupList = cellPopulation, subsetPeaks = TRUE))
-  }
-
-
-  if(all(!methods::is(featureSample, 'numeric'))){
-      
-      
-      featureSample1 = names(featureSample)
-      
-      
-  }else{
-
-        featureSample1 = featureSample
-
   }
 
   modelList <- .pilotModels_generic(SE_Object = newObj,
@@ -156,10 +108,9 @@ pilot_scATAC <- function(atacSE,
 #' @param cellPopulation Name of a cell type within the rnaSE
 #' @param modelFormula The formula for the continuous data that should be used within glmmTMB. It should be in the
 #'   format (exp ~ factors). All factors must be found in column names
-#'   of the rnaSE metadata, except for CellType, FragmentCounts and CellCount, which will be extracted from the rnaSE.
+#'   of the rnaSE metadata, except for CellType, FragNumber and CellCount, which will be extracted from the rnaSE.
 #'   modelFormula must start with 'exp' as the response.
 #'   See \link[glmmTMB]{glmmTMB}.
-#' @param ziFormula A formula for zero inflation. By default, zero-inflated modeling is turned off by setting ziFormula = ~ 0
 #' @param family String. Can be 'negativeBinomial1', 'negativeBinomial2', or 'poisson'. Default is "negativeBinomial2".
 #' @param detectionThreshold A number between 0 and 1, representing the mean detection rate threshold for a given gene to be modeled. 
 #'   This detection rate is calculated for each sample and cell type during makePseudobulkRNA, and represents the percentage of cells that have a transcript for a given gene. Over all samples, the average has to be above this to be modeled. Default is 0.01. 
@@ -189,6 +140,7 @@ pilot_scRNA <- function(rnaSE,
                         cellPopulation = NULL,
                         modelFormula = NULL,
                         ziFormula = ~0,
+                        zi_threshold = 0,
                         verbose = FALSE,
                         family = "negativeBinomial2",
                         detectionThreshold = 0.1,
@@ -197,7 +149,6 @@ pilot_scRNA <- function(rnaSE,
                         numCores = 1,
                         featureSample = 100) {
 
-  ## Verify that the inputs are right (rnaSE, modelFormula, ziFormula, cell population(s), and featureSample(s). 
   if(isChAIObject(rnaSE, type = 'data', returnType = TRUE) != 'scRNA'){
 
     stop('rnaSE is not a ChAI scRNA Object (normalized, pseudobulked via ChAI.)')
@@ -212,79 +163,25 @@ pilot_scRNA <- function(rnaSE,
     if (!methods::is(ziFormula,'formula')) {
     stop("ziFormula was not provided as a formula.")
   }
-    
-  ## Evaluate cellPopulations. 
-  if(all(tolower(cellPopulation) == 'all')){
-   
-      cellPopulation = SummarizedExperiment::assayNames(rnaSE)
-      
-  }
-    
-      
-  if(!all(cellPopulation %in% SummarizedExperiment::assayNames(rnaSE))){
-   
-      stop('cellPopulation not found within rnaSE object')
-      
-  }
-    
-   if(!methods::is(featureSample, 'numeric')){
-      
-     if(all(!cellPopulation %in% names(featureSample)) & cellPopulation > 1){
-   
-          stop('cellPopulation not found within rnaSE object')
-    }
-      
-  }
-    
 
  if (length(cellPopulation) > 1) {
-     
-    allRes = lapply(cellPopulation, function(XX){
-            message(stringr::str_interp('Modeling ${XX}'))
-            tryCatch({
-                gc()
-                
-                featureSample1 = ifelse(methods::is(featureSample, 'numeric'), featureSample, featureSample[[XX]])
-
-                pilot_scRNA(rnaSE,
-                      cellPopulation = XX,
-                      modelFormula = modelFormula,
-                      ziFormula = ziFormula,
-                      family = "negativeBinomial2",
-                      detectionThreshold = detectionThreshold,
-                      expressionThreshold = expressionThreshold,
-                      cellCountThreshold = cellCountThreshold,
-                      featureSample = featureSample1,
-                      verbose = verbose,
-                      numCores = numCores)
-                
-                }, error = function(e){e})
-        })
-    names(allRes) = cellPopulation
-    return(allRes)
-     
-  }else if(cellPopulation == 'counts'){
-     
+    stop(
+      "More than one cell population was provided. ",
+      "cellPopulation must be length 1. To run over multiple cell types, ",
+      "run flattenChAI() to produce a new combined rnaSE and set ",
+      "cellPopulation = 'counts'."
+    )
+  } else if (
+    (!cellPopulation %in% names(SummarizedExperiment::assays(rnaSE)))
+  ) {
+    stop("cellPopulation was not found within rnaSE.")
+  } else if(cellPopulation == 'counts'){
     newRNA <- rnaSE
-     
   }else{
     #newObj <- flattenChAI(rnaSE)
     #Needs to be generated, analoguous to combineSampleTileMatrix
 
     newRNA = flattenChAI(rnaSE,  cellPopulations = cellPopulation, metadataT = TRUE)
-
-  }
-     
-  ## Process feature samples
-  if(all(!methods::is(featureSample, 'numeric'))){
-      
-      
-      featureSample1 = names(featureSample)
-      
-      
-  }else{
-
-        featureSample1 = featureSample
 
   }
 
@@ -307,20 +204,13 @@ pilot_scRNA <- function(rnaSE,
   }
 
   ### Filter by minimum detection rate to help speed up modeling. No point in modeling lowly expressed genes. 
-  mf = SummarizedExperiment::colData(newRNA)
-  allVariables <- colnames(mf)[colnames(mf) %in% c(all.vars(modelFormula))]
-  passGenes <- thresholdGenes(rnaSE,   
-                           factors = allVariables,
-                        cellPopulation = cellPopulation,
-                    detectionThreshold = detectionThreshold,
-                    expressionThreshold = expressionThreshold,
-                    cellCountThreshold = cellCountThreshold)
-      
-  newRNA = newRNA[rownames(newRNA) %in% unlist(passGenes),]
-
-  if(dim(newRNA)[1] == 0){
-        stop('No genes pass the detectionThreshold and expressionThreshold. Please adjust thresholding.')
+  detectMean <- rowMeans(SummarizedExperiment::assays(rnaSE@metadata$detectionRate[rownames(newRNA),])[[cellPopulation]])
+  expressMean <- rowMeans(SummarizedExperiment::assays(newRNA)[[1]])
+  if(sum(detectMean > detectionThreshold & expressMean > expressionThreshold) == 0){
+    stop('No genes pass the detectionThreshold and expressionThreshold. Please adjust thresholding.')
   }
+    
+  newRNA = newRNA[detectMean > detectionThreshold & expressMean > expressionThreshold,]
 
   if(sum(newRNA$CellCounts >=  cellCountThreshold) < 3){
   
@@ -340,7 +230,7 @@ pilot_scRNA <- function(rnaSE,
                         ziFormula = ziFormula,
                         family = family,
                         modality = 'scRNA_Model',
-                        zi_threshold = 0,
+                        zi_threshold = zi_threshold,
                         verbose = verbose,
                         numCores = numCores,
                         featureSample = featureSample)
@@ -356,7 +246,7 @@ pilot_scRNA <- function(rnaSE,
 #' @description \code{pilot_chromVAR} Function for testing out GLM formulas on the ChromVAR Motif Z-scores generated via ChAI and MOCHA
 #'   Runs a given formula on a subset of the data, and returns the model results. This is meant to help during the model selection process. \code{\link[glmmTMB]{glmmTMB}}. 
 #'
-#' @param chromSE A SummarizedExperiment-type object generated from makeChromVAR.
+#' @param MotifObj A SummarizedExperiment-type object generated from makeChromVAR.
 #' @param cellPopulation Name of a cell type within the ChAI ChromVAR Object
 #' @param modelFormula The formula to use with glmmTMB, in the
 #'   format (exp ~ factors). All factors must be found in column names
@@ -371,7 +261,7 @@ pilot_scRNA <- function(rnaSE,
 #'
 #' @keywords pilot_modeling
 #' @export
-pilot_chromVAR <- function(chromSE,
+pilot_chromVAR <- function(MotifObj,
                       cellPopulation = NULL,
                       modelFormula,
                       numCores = 1,
@@ -384,74 +274,20 @@ pilot_chromVAR <- function(chromSE,
 
   }
     
-  if(!methods::is(featureSample, 'numeric')){
-      
-     if(all(!cellPopulation %in% names(featureSample)) & cellPopulation > 1){
-   
-          stop('cellPopulation not found within chromSE object')
-    }
-      
-  }
-    
-     
-  ## Evaluate cellPopulations. 
-  if(all(tolower(cellPopulation) == 'all')){
-   
-      cellPopulation = SummarizedExperiment::assayNames(chromSE)
-      
-  }
-    
-      
-  if(!all(cellPopulation %in% SummarizedExperiment::assayNames(chromSE))){
-   
-      stop('cellPopulation not found within chromSE object')
-      
-  }
-    
   if (length(cellPopulation) > 1) {
-      
-    allRes = lapply(cellPopulation, function(XX){
-        
-            message(stringr::str_interp('Modeling ${XX}'))
-        
-            tryCatch({
-                gc()
-                
-                featureSample1 = ifelse(methods::is(featureSample, 'numeric'), featureSample, featureSample[[XX]])
-
-                pilot_chromVAR(chromSE,
-                      cellPopulation = XX,
-                      modelFormula = modelFormula,
-                      featureSample = featureSample1,
-                      verbose = verbose,
-                      numCores = numCores)
-                
-                }, error = function(e){e})
-        
-        })
-    names(allRes) = cellPopulation
-    return(allRes)
-      
+    stop(
+      "More than one assay was provided. ",
+      "assayName must be length 1. To run over multiple assays/cell types, ",
+      "combine the matrices into one and wrap them in a SummarizedExperiment. Then set assayName to ",
+      "the name of that matrix in the obejct."
+    )
   } else if (
-    !cellPopulation %in% names(SummarizedExperiment::assays(chromSE))
+    !cellPopulation %in% names(SummarizedExperiment::assays(MotifObj))
   ) {
-    stop("cellPopulation was not found within chromSE provided.")
+    stop("cellPopulation was not found within MotifObj provided.")
   }
     
-  subObj <- flattenChAI(chromSE, cellPopulations = cellPopulation) 
-    
-  ## Process feature samples
-  if(all(!methods::is(featureSample, 'numeric'))){
-      
-      
-      featureSample1 = names(featureSample)
-      
-      
-  }else{
-
-        featureSample1 = featureSample
-
-  }
+  subObj <- flattenChAI(MotifObj, cellPopulations = cellPopulation) 
 
   modelList <- .pilotModels_generic(SE_Object = subObj,
                         modelFormula = modelFormula,
@@ -628,10 +464,10 @@ pilot_General <- function(ExperimentObj,
         
   MetaDF <- dplyr::filter(MetaDF, Sample %in% colnames(modelingData))
 
-  ## Log transform the FragmentNumbers so as to stabilize the model. But only if FragmentCounts is in the model. Same for CellCounts.
-  if(any(colnames(MetaDF) %in% c('FragmentCounts'))){
-    MetaDF$rawFragmentCounts = MetaDF$FragmentCounts
-    MetaDF$FragmentCounts = log10(MetaDF$FragmentCounts+1)
+  ## Log transform the FragmentNumbers so as to stabilize the model. But only if FragNumber is in the model. Same for CellCounts.
+  if(any(colnames(MetaDF) %in% c('FragNumber'))){
+    MetaDF$rawFragNumber = MetaDF$FragNumber
+    MetaDF$FragNumber = log10(MetaDF$FragNumber+1)
   }
   if(any(colnames(MetaDF) %in% c('CellCounts'))){
     MetaDF$rawCellCounts = MetaDF$CellCounts
@@ -645,14 +481,14 @@ pilot_General <- function(ExperimentObj,
     message("Modeling results.")
   }
 
-  if(modality == 'scATAC_Model'){
+  if(modality == 'scATAC'){
     modelingData = log2(modelingData + 1)
   }
-
+    
   # Make your clusters for efficient parallelization
   modelList <- pbapply::pblapply(X = rowIndices, function(x) {
   
-    df1 <- data.frame(
+    df <- data.frame(
       exp = as.numeric(modelingData[x, ]),
       MetaDF, stringsAsFactors = FALSE
     )
@@ -662,13 +498,13 @@ pilot_General <- function(ExperimentObj,
       if(modality != 'scATAC_Model'){
          modelRes <- glmmTMB::glmmTMB(exp ~ 1,
           ziformula = ~ 0,
-          data = df1,
+          data = df,
           family = family,
           REML = TRUE,
           control = glmmTMB::glmmTMBControl(parallel = numCores)
         )
         
-        sigZI <- DHARMa::testZeroInflation(modelRes,plot = FALSE)$p.value < 0.05
+        sigZI <- DHARMa::testZeroInflation(modelRes)$p.value < 0.05
           
       }else{
       
@@ -681,7 +517,7 @@ pilot_General <- function(ExperimentObj,
         if(sigZI){
             modelRes <- glmmTMB::glmmTMB(modelFormula,
               ziformula = ziFormula,
-              data = df1,
+              data = df,
               family = family,
               REML = TRUE,
               control = glmmTMB::glmmTMBControl(parallel = numCores)
@@ -689,26 +525,26 @@ pilot_General <- function(ExperimentObj,
         }else{
           modelRes <- glmmTMB::glmmTMB(modelFormula,
               ziformula = ~ 0,
-              data = df1,
+              data = df,
               family = family,
               REML = TRUE,
               control = glmmTMB::glmmTMBControl(parallel = numCores)
             )
          }
   
-     }else if(sum(df1$exp == 0, na.rm = TRUE) == 0){
+     }else if(sum(df$exp == 0, na.rm = TRUE) == 0){
         modelRes <- glmmTMB::glmmTMB(modelFormula,
           ziformula = ~ 0,
-          data = df1,
+          data = df,
           family = family,
           REML = TRUE,
           control = glmmTMB::glmmTMBControl(parallel = numCores)
         )
-      }else if(sum(df1$exp == 0, na.rm = TRUE)/length(df1$exp) <= zi_threshold){
-        df1$exp[df1$exp == 0] = NA
+      }else if(sum(df$exp == 0, na.rm = TRUE)/length(df$exp) <= zi_threshold){
+        df$exp[df$exp == 0] = NA
         modelRes <- glmmTMB::glmmTMB(modelFormula,
           ziformula = ziFormula,
-          data = df1,
+          data = df,
           family = family,
           REML = TRUE,
           control = glmmTMB::glmmTMBControl(parallel = numCores)
@@ -717,14 +553,14 @@ pilot_General <- function(ExperimentObj,
         }else{
         modelRes <- glmmTMB::glmmTMB(modelFormula,
           ziformula = ziFormula,
-          data = df1,
+          data = df,
           family = family,
           REML = TRUE,
           control = glmmTMB::glmmTMBControl(parallel = numCores)
         )
       }
     }, error = function(e){
-      list('error' = e, 'Measurement' = x, 'Data' = df1)
+      list('error' = e, 'Measurement' = x, 'Data' = df)
     })
 
   }, cl = NULL)

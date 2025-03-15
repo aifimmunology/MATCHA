@@ -9,6 +9,7 @@ pilot_scRNA(
   cellPopulation = NULL,
   modelFormula = NULL,
   ziFormula = ~0,
+  zi_threshold = 0,
   verbose = FALSE,
   family = "negativeBinomial2",
   detectionThreshold = 0.1,
@@ -25,11 +26,9 @@ pilot_scRNA(
 
 \item{modelFormula}{The formula for the continuous data that should be used within glmmTMB. It should be in the
 format (exp ~ factors). All factors must be found in column names
-of the rnaSE metadata, except for CellType, FragmentCounts and CellCount, which will be extracted from the rnaSE.
+of the rnaSE metadata, except for CellType, FragNumber and CellCount, which will be extracted from the rnaSE.
 modelFormula must start with 'exp' as the response.
 See \link[glmmTMB]{glmmTMB}.}
-
-\item{ziFormula}{A formula for zero inflation. By default, zero-inflated modeling is turned off by setting ziFormula = ~ 0}
 
 \item{verbose}{Set TRUE to display additional messages. Default is FALSE.}
 

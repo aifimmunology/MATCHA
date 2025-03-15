@@ -6,7 +6,7 @@
 \usage{
 exportGeneTileLinks(
   GeneTileAssociation,
-  fileName = NULL,
+  fileName,
   returnDF = FALSE,
   FDR_threshold = 0.1,
   filterFactors = NULL,
@@ -15,7 +15,7 @@ exportGeneTileLinks(
 
 exportGeneTileLinks(
   GeneTileAssociation,
-  fileName = NULL,
+  fileName,
   returnDF = FALSE,
   FDR_threshold = 0.1,
   filterFactors = NULL,
@@ -25,7 +25,7 @@ exportGeneTileLinks(
 \arguments{
 \item{GeneTileAssociation}{A ChAI GeneTileAssociation model}
 
-\item{fileName}{The name of the file to be exported (should end in .bedpe if you want to view in IGV), if returnDF = FALSE}
+\item{fileName}{String describing the name of the file to write to disk.}
 
 \item{returnDF}{Boolean. Determines whether to write to file or return a data.frame}
 
@@ -36,6 +36,8 @@ exportGeneTileLinks(
 \item{backgroundThreshold}{A number between 0 and 1 that is used as the FDR threshold to determine whether a controlFactor is significant, and thus a given pairwise association should be removed.}
 
 \item{GeneTileObj}{SummarizedExperiment objectoutput of GeneTile_Associations.}
+
+\item{filename}{The name of the file to be exported (should end in .bedpe if you want to view in IGV), if returnDF = FALSE}
 }
 \value{
 a dataframe or nothing (writes to file)
@@ -43,6 +45,6 @@ a dataframe or nothing (writes to file)
 \description{
 \code{exportGeneTileLinks} Takes the output of GeneTile_Associations and exports a file in the bedpe format for easy browsing of gene-tile links.
 
-\code{exportGeneTileLinks} takes GeneTile Model and exports the significant connections to a .bedpe format or returns a data.frame.
+\code{exportGeneTileLinksn} takes GeneTile Model and exports the significant connections to a .bedpe format or returns a data.frame.
 }
 \keyword{networks}

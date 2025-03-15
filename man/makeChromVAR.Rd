@@ -6,7 +6,7 @@
 \usage{
 makeChromVAR(
   atacSE,
-  motifName = "Motifs",
+  motifName,
   cellPopulation = NULL,
   withinCellType = FALSE,
   exportRaw = FALSE,

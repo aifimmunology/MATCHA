@@ -4,15 +4,12 @@
 \alias{transformChAI}
 \title{Run a mathematical transform on a ChAI object.}
 \usage{
-transformChAI(ChAIObject, transformType = "clr", ...)
+transformChAI(ChAIObject, transformType = "clr")
 }
 \arguments{
 \item{ChAIObject}{A SummarizedExperiment generated from ChAI (makeChromVAR, normalizePseudobulk, or importGeneralModality)}
 
-\item{transformType}{A string that must be either 'log10p' for a log10+1 transform, 'logp' for log e + 1, 
-'CLR' for a center-log ratio transform, and 'meanShift' (data - rowMeans(data)). 
- Additional Cox-Box transforms inclde r, rv, r2, rv2, l, lv, l2, and lv2, based on this Nature paper. 
- https://www.nature.com/articles/s41598-019-41315-w & the corresponding package 'countTransformers'}
+\item{transformType}{A string that must be either 'log10' for a log10 transform, 'CLR' for a center-log ratio transform, and 'meanShift' (data - rowMeans(data))}
 }
 \value{
 A ChAI object with the data transformed

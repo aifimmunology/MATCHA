@@ -20,15 +20,4 @@ A SummarizedExperiment with all your data inerwoven with the MetaData
 \description{
 \code{importGeneralModality} Accepts normalized data from any general modality, associated metadata, and generates a ChAI-compatible SummarizedExperiment object.
 }
-\examples{
-\dontrun{
-  olinkMat <- read.csv('olink_covid_olink.csv',row.names =1)
-  olinkMeta <-  read.csv('olink_covid_olink_metadata.csv')
-
-  #Align the column names of the data frame to the rownames of the meta data frame. 
-  olinkMeta$Sample <- paste('X', olinkMeta$patientID_Visit,sep ='')
-  olinkSE <- importGeneralModality(olinkMat, olinkMeta, 'Sample')
-}
-
-}
 \keyword{data_import}

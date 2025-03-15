@@ -53,7 +53,7 @@ subsetChAI <- function(ChAIObject,
         stop("The ChAIObject you provided has been run through flattenChAI, and this function is not needd for subsetting. Please use standard data.frame-like subsetting operations instead (i.e. ChAIObj[C('GeneA','GeneB'), ChAIObject$Status %in% 'Healthy'])")
 
     }
-     
+
     sampleData <- SummarizedExperiment::colData(ChAIObject)
     
     if (grepl("celltype|assay", tolower(subsetBy))) {
@@ -84,11 +84,6 @@ subsetChAI <- function(ChAIObject,
         }else{
             stop('Some indices of groupList were not found within the metadata of column provided to subsetBy.')
         }
-    }else{
-    
-        stop("The subsetBy variable is neither a column within the sample metadata, nor the string 'CellType'.",
-             "Please provide one or the other")
-        
     }
     return(newSE)
 }
@@ -113,6 +108,7 @@ flattenChAI <- function(ChAIObject,
                               cellPopulations = 'All', metadataT = TRUE) {
 
     dataType <- isChAIObject(ChAIObject, type = 'data')
+
     CellType <- Sample <- NULL
 
     if(all(tolower(cellPopulations) == 'all')){
@@ -133,6 +129,7 @@ flattenChAI <- function(ChAIObject,
     newSamplesNames <- unlist(lapply(names(cellNames), function(x) {
         gsub(" ", "_", paste(x, colnames(subObject), sep = "__"))
     }))
+
     names(newAssays) <- "counts"
     colnames(newAssays[[1]]) <- newSamplesNames
 
@@ -153,8 +150,7 @@ flattenChAI <- function(ChAIObject,
     if(metadataT & dataType != 'General'){
 
         summarizedData <- S4Vectors::metadata(subObject)$summarizedData
-        addMetaData <- as.data.frame(do.call('cbind',lapply(SummarizedExperiment::assays(summarizedData),
-                        function(x){
+        addMetaData <- as.data.frame(do.call('cbind',lapply(SummarizedExperiment::assays(summarizedData), function(x){
             tmpMeta <- x
             tmpMeta$CellType = rownames(x)
             tmpMeta2 <- tidyr::pivot_longer(
@@ -173,18 +169,8 @@ flattenChAI <- function(ChAIObject,
         })))
         addMetaData = addMetaData[, !colnames(addMetaData) %in% colnames(allSampleData)]
         addMetaData$Sample = rownames(addMetaData)
-        fullMeta <- dplyr::full_join( as.data.frame(allSampleData), 
-                                     as.data.frame(addMetaData), by = 'Sample')
-        rownames(fullMeta) = fullMeta$Sample
-        
-         
-        
-        if(! all(fullMeta$Sample %in% colnames(newAssays[[1]]))){
-            
-            stop('Sample names are not aligned. Metadata appears to be corrupted. ')
-            
-        }
-        
+        fullMeta <- dplyr::full_join( as.data.frame(allSampleData), as.data.frame(addMetaData), by = 'Sample')
+
         #Must test if there are rowRanges, or else an error will be thrown. 
         if(!is.null(SummarizedExperiment::rowRanges(subObject))){
             newSE <- SummarizedExperiment::SummarizedExperiment(newAssays,
@@ -659,11 +645,7 @@ mergeUniqueRows <- function(SEObjectList, newSE, fill = 0){
 #' @description \code{transformChAI} For associations, abnormally distributed data can break models. transformChAI does several specific transformations to data in ChAI objects, 
 #'                  so that they can be used in associative modeling functions. 
 #' @param ChAIObject A SummarizedExperiment generated from ChAI (makeChromVAR, normalizePseudobulk, or importGeneralModality)
-#' @param transformType A string that must be either 'log10p' for a log10+1 transform, 'logp' for log e + 1, 
-#'         'CLR' for a center-log ratio transform, and 'meanShift' (data - rowMeans(data)). 
-#'          Additional Cox-Box transforms inclde r, rv, r2, rv2, l, lv, l2, and lv2, based on this Nature paper. 
-#'          https://www.nature.com/articles/s41598-019-41315-w & the corresponding package 'countTransformers'
-#'
+#' @param transformType A string that must be either 'log10' for a log10 transform, 'CLR' for a center-log ratio transform, and 'meanShift' (data - rowMeans(data))
 #'
 #' @return A ChAI object with the data transformed
 #'
@@ -678,36 +660,14 @@ mergeUniqueRows <- function(SEObjectList, newSE, fill = 0){
 #' @keywords data_object_manipulation
 #'
 
-transformChAI <- function(ChAIObject, transformType = 'clr', ...){
+transformChAI <- function(ChAIObject, transformType = 'clr'){
 
-    #need to check for valid ChAI Object
+    #need to check for valid ChAi Object
+
 
     assayList <- SummarizedExperiment::assays(ChAIObject)
 
-    addVariable = list(...)
-    if(any(names(addVariable) == 'low')){
-        low1 = addVariable$low
-    }else{
-    
-        low1 = 0.001
-    }
-    
-    if(any(names(addVariable) == 'upp')){
-        upp1 = addVariable$upp
-    }else{
-    
-        upp1 = 100
-    }
-    
-    if(any(names(addVariable) == 'lib.size')){
-        lib.size = addVariable$lib.size
-    }else{
-    
-        lib.size = NULL
-    }
-
-
-    if(tolower(transformType) == 'log10p'){
+    if(tolower(transformType) == 'log10'){
 
         assayList2 <- lapply(assayList, function(x){
                     mat = x
@@ -725,15 +685,6 @@ transformChAI <- function(ChAIObject, transformType = 'clr', ...){
         }) 
         names(assayList2) <- names(assayList)
 
-    } else if(tolower(transformType) == 'log1p'){
-
-        assayList2 <- lapply(assayList, function(x){
-                    mat = x
-                    mat[is.na(mat)] = 0
-                    log(mat + 1)
-        }) 
-        names(assayList2) <- names(assayList)
-
     } else if(tolower(transformType) == 'meanshift'){
 
         assayList2 <- lapply(assayList, function(x){
@@ -743,420 +694,17 @@ transformChAI <- function(ChAIObject, transformType = 'clr', ...){
         }) 
         names(assayList2) <- names(assayList)
 
-    }else if(tolower(transformType) == 'l'){
-
-        assayList2 <- list()
-        deltaList = list()
-        #https://github.com/cran/countTransformers/blob/master/R/lTransformer.R
-        tmpFunction <- function(delta, vector1){
-            aa=log2(vector1+(1/delta))
-            res=(mean(aa, na.rm=TRUE)-stats::median(aa, na.rm=TRUE))^2
-            return(res)
-        }
-        for(x in seq_along(assayList)){
-            mat = assayList[[x]]
-            mat[is.na(mat)] = 0
-            ## From countTransformers on CRAN, which is no longer maintained. 
-            res.delta=stats::optimize(tmpFunction, vector1=c(mat),lower=low1, upper=upp1)
-            y=log2(c(mat)+(1/res.delta$minimum))
-            mat2=matrix(y, ncol=ncol(mat))
-            rownames(mat2)=rownames(mat)
-            colnames(mat2)=colnames(mat)
-            assayList2 = append(assayList2, mat2)
-            deltaList = append(deltaList, res.delta$minimum)
-            
-        }
-        names(assayList2) <- names(assayList)
-        names(deltaList) <- names(assayList)
-        ChAIObject@metadata = append(ChAIObject@metadata, list('DeltaOptimization'= deltaList))
-
-    }else if(tolower(transformType) == 'l2'){
-
-        assayList2 <- list()
-        deltaList = list()
-        #https://github.com/cran/countTransformers/blob/master/R/l2Transformer.R
-        tmpFunction1 <- function(delta, vector1){
-            aa=log2(vector1+(1/delta))
-            res=(mean(aa, na.rm=TRUE)-stats::median(aa, na.rm=TRUE))^2
-            return(res)
-        }
-        for(x in seq_along(assayList)){
-            mat = assayList[[x]]
-            mat[is.na(mat)] = 0
-            ## From countTransformers on CRAN, which is no longer maintained. 
-            res.delta=stats::optimize(tmpFunction1, vector1=c(mat),lower=low1, upper=upp1)
-            mat2=log2(mat+(1/res.delta$minimum))
-            rownames(mat2)=rownames(mat)
-            colnames(mat2)=colnames(mat)
-            assayList2 = append(assayList2, mat2)
-            deltaList = append(deltaList, res.delta$minimum)
-            
-        }
-        names(assayList2) <- names(assayList)
-        names(deltaList) <- names(assayList)
-        ChAIObject@metadata = append(ChAIObject@metadata, list('DeltaOptimization'= deltaList))
-        
-        
-
-    }else if(tolower(transformType) == 'lv'){
-
-        assayList2 <- list()
-        deltaList = list()
-        #https://github.com/cran/countTransformers/blob/master/R/lvTransformer.R
-        tmpFunction2 <- function(delta, mat, lib.size=NULL){
-            if(is.null(lib.size))
-              {
-                lib.size=colSums(mat)
-              }
-
-              tt <- t(mat + 0.5)/(lib.size + 1) * 1e+06
-              mat2 <- t(log2(tt+1/delta))
-              vec = c(mat2) 
-              res=(mean(vec, na.rm=TRUE)-stats::median(vec, na.rm=TRUE))^2
-
-              return(res)
-         }
-        
-        for(x in seq_along(assayList)){
-            mat = assayList[[x]]
-            mat[is.na(mat)] = 0
-            ## From countTransformers on CRAN, which is no longer maintained. 
-            res.delta=stats::optimize(tmpFunction2, mat=mat,lower=low1, upper=upp1, lib.size=NULL)
-            mat2=log2(mat+(1/res.delta$minimum))
-            rownames(mat2)=rownames(mat)
-            colnames(mat2)=colnames(mat)
-            assayList2 = append(assayList2, mat2)
-            deltaList = append(deltaList, res.delta$minimum)
-            
-        }
-        names(assayList2) <- names(assayList)
-        names(deltaList) <- names(assayList)
-        ChAIObject@metadata = append(ChAIObject@metadata, list('DeltaOptimization'= deltaList))
-        
-        
-
-    }else if(tolower(transformType) == 'lv2'){
-
-        assayList2 <- list()
-        deltaList = list()
-        #https://github.com/cran/countTransformers/blob/master/R/lvTransformer.R
-        tmpFunction3 <- function(delta, mat, lib.size=NULL){
-             if(is.null(lib.size)){
-                lib.size=colSums(mat)
-              }
-
-              tt <- t(mat + 0.5)/(lib.size + 1) * 1e+06
-              mat2 <- t(log2(tt+1/delta))
-
-              md=apply(mat2, 2, stats::median, na.rm=TRUE)
-              me=apply(mat2, 2, mean, na.rm=TRUE)
-              res=sum((md-me)^2, na.rm=TRUE)
-
-              return(res)
-         }
-        
-        for(x in seq_along(assayList)){
-            mat = assayList[[x]]
-            mat[is.na(mat)] = 0
-            ## From countTransformers on CRAN, which is no longer maintained. 
-            res.delta=stats::optimize(tmpFunction3, mat=mat,lower=low1, upper=upp1, lib.size=NULL)
-            
-            delta.optim = res.delta$minimum
-              if(is.null(lib.size))
-              {
-                lib.size=colSums(mat)
-              }
-
-              tt <- t(mat + 0.5)/(lib.size + 1) * 1e+06
-              mat2 <- t(log2(tt+1/delta.optim))
-            
-            assayList2 = append(assayList2, mat2)
-            deltaList = append(deltaList, res.delta$minimum)
-            
-        }
-        names(assayList2) <- names(assayList)
-        names(deltaList) <- names(assayList)
-        ChAIObject@metadata = append(ChAIObject@metadata, list('DeltaOptimization'= deltaList, 'TransformType' = transformType))
-        
-        
-
-    }else if(tolower(transformType) == 'r'){
-
-        assayList2 <- list()
-        deltaList = list()
-        #https://github.com/cran/countTransformers/blob/master/R/rTransformer.R
-        tmpFunction4 <- function(eta,vec){
-             aa=(vec^(1/eta)/(1/eta))
-              res=(mean(aa, na.rm=TRUE)-stats::median(aa, na.rm=TRUE))^2
-              return(res)
-         }
-        
-        for(x in seq_along(assayList)){
-            mat = assayList[[x]]
-            mat[is.na(mat)] = 0
-            ## From countTransformers on CRAN, which is no longer maintained. 
-            res.eta=stats::optimize(tmpFunction4, vec=c(mat),lower=low1, upper=upp1)
-            
-            y=c(mat)^(1/res.eta$minimum)/(1/res.eta$minimum)
-
-            # convert back to matrix
-            mat2=matrix(y, ncol=ncol(mat))
-            rownames(mat2)=rownames(mat)
-            colnames(mat2)=colnames(mat)
-            
-            assayList2 = append(assayList2, mat2)
-            deltaList = append(deltaList, res.eta$minimum)
-            
-        }
-        names(assayList2) <- names(assayList)
-        names(deltaList) <- names(assayList)
-        ChAIObject@metadata = append(ChAIObject@metadata, list('DeltaOptimization'= deltaList, 'TransformType' = transformType))
-        
-        
-
-    }else if(tolower(transformType) == 'r2'){
-
-        assayList2 <- list()
-        deltaList = list()
-        #https://github.com/cran/countTransformers/blob/master/R/r2Transformer.R
-        tmpFunction5 <- function(eta,mat){
-             aa=(mat^(1/eta)/(1/eta))
-            #calculate sum of subject-specific squared difference between sample mean & median
-             md=apply(mat, 2, stats::median, na.rm=TRUE)
-              me=apply(mat, 2, mean, na.rm=TRUE)
-              res=sum((md-me)^2, na.rm=TRUE)
-
-             return(res)
-         }
-        
-        for(x in seq_along(assayList)){
-            mat = assayList[[x]]
-            mat[is.na(mat)] = 0
-            ## From countTransformers on CRAN, which is no longer maintained. 
-            res.eta=stats::optimize(tmpFunction5, mat=mat,lower=low1, upper=upp1)
-            
-            y=c(mat)^(1/res.eta$minimum)/(1/res.eta$minimum)
-
-           mat2=mat^(1/res.eta$minimum)/(1/res.eta$minimum)
-           rownames(mat2)=rownames(mat)
-           colnames(mat2) = colnames(mat)
-            
-            assayList2 = append(assayList2, mat2)
-            deltaList = append(deltaList,res.eta$minimum)
-            
-        }
-        names(assayList2) <- names(assayList)
-        names(deltaList) <- names(assayList)
-        ChAIObject@metadata = append(ChAIObject@metadata, list('DeltaOptimization'= deltaList, 'TransformType' = transformType))
-        
-        
-
-    }else if(tolower(transformType) == 'rv'){
-
-        assayList2 <- list()
-        deltaList = list()
-        #https://github.com/cran/countTransformers/blob/master/R/rvTransformer.R
-        tmpFunction6 <- function(eta, mat,lib.size=NULL){
-             if(is.null(lib.size)){
-                lib.size=colSums(mat)
-              }
-
-            tt <- t(mat + 0.5)/(lib.size + 1) * 1e+06
-            mat2 <- t(tt^(1/eta)/(1/eta))
-            vec = c(mat2) 
-            res=(mean(vec, na.rm=TRUE)- stats::median(vec, na.rm=TRUE))^2
-
-            return(res)
-         }
-        
-        for(x in seq_along(assayList)){
-            mat = assayList[[x]]
-            mat[is.na(mat)] = 0
-            ## From countTransformers on CRAN, which is no longer maintained. 
-            res.eta=stats::optimize(tmpFunction6, mat=mat, lib.size=lib.size, lower=low1, upper=upp1)
-            
-           eta.optim=res.eta$minimum
-              if(is.null(lib.size))
-              {
-                lib.size=colSums(mat)
-              }
-
-              tt <- t(mat + 0.5)/(lib.size + 1) * 1e+06
-              mat2 <- t(tt^(1/eta.optim)/(1/eta.optim))
-              rownames(mat2)=rownames(mat)
-              colnames(mat2)=colnames(mat)
-            
-            assayList2 = append(assayList2, mat2)
-            deltaList = append(deltaList, eta.optim)
-            
-        }
-        names(assayList2) <- names(assayList)
-        names(deltaList) <- names(assayList)
-        ChAIObject@metadata = append(ChAIObject@metadata, list('EtaOptimization'= deltaList, 'TransformType' = transformType))
-        
-        
-
-    }else if(tolower(transformType) == 'rv2'){
-
-        assayList2 <- list()
-        deltaList = list()
-        #https://github.com/cran/countTransformers/blob/master/R/rvTransformer.R
-        tmpFunction7 <- function(eta, mat,lib.size=NULL){
-             if(is.null(lib.size))
-              {
-                lib.size=colSums(mat)
-              }
-              tt <- t(mat + 0.5)/(lib.size + 1) * 1e+06
-              mat2 <- t(tt^(1/eta)/(1/eta))
-              md=apply(mat2, 2, stats::median, na.rm=TRUE)
-              me=apply(mat2, 2, mean, na.rm=TRUE)
-              res=sum((md-me)^2, na.rm=TRUE)
-
-            return(res)
-         }
-        
-        for(x in seq_along(assayList)){
-            mat = assayList[[x]]
-            mat[is.na(mat)] = 0
-            ## From countTransformers on CRAN, which is no longer maintained. 
-            res.eta=stats::optimize(tmpFunction7, mat=mat, lib.size=lib.size, lower=low1, upper=upp1)
-            
-           eta.optim=res.eta$minimum
-              if(is.null(lib.size))
-              {
-                lib.size=colSums(mat)
-              }
-              tt <- t(mat + 0.5)/(lib.size + 1) * 1e+06
-              mat2 <- t(tt^(1/eta.optim)/(1/eta.optim))
-              rownames(mat2)=rownames(mat)
-              colnames(mat2)=colnames(mat)
-            
-            assayList2 = append(assayList2, list(mat2))
-            deltaList = append(deltaList, eta.optim)
-            
-        }
-
-        names(assayList2) <- names(assayList)
-        names(deltaList) <- names(assayList)
-        ChAIObject@metadata = append(ChAIObject@metadata, list('EtaOptimization'= deltaList, 'TransformType' = transformType))
-        
-        
-
     }else{
         stop('transformType was not reconciled. Options include log10, meanshift, and clr.')
     }
-        
-    SummarizedExperiment::assays(ChAIObject, withDimnames=FALSE) = assayList2
-    ChAIObject@metadata$Type = 'General'
-    ChAIObject@metadata$History = append(ChAIObject@metadata$History, 
-                                         paste("transformChAI", utils::packageVersion("ChAI")))
+
+    SummarizedExperiment::assays(ChAIObject) = assayList2
     
+
     return(ChAIObject)
 
 }
 
-#' @title Functions for identifying genes that pass threshold for a given cell types. 
-#'
-#' @description \code{thresholdGenes} Identifies which genes pass the threshold settings for a given cell type
-#' @param rnaSE A scRNA SummarizedExperiment from makePseudobulkRNA. 
-#' @param factors Categorical factors, found within the sample metadata. If numeric factors are provided,
-#'                   they will be avoided. If genes pass the provided threshold in any group, 
-#'                   they will be returned.
-#' @param detectionThreshold A number between 0 and 1, representing the mean detection rate threshold for a given gene to be modeled. 
-#'   This detection rate is calculated for each sample and cell type during makePseudobulkRNA, and represents the percentage of cells that have a transcript for a given gene. Over all samples, the average has to be above this to be modeled. Default is 0.01. 
-#' @param expressionThreshold A number greater than zero, representing the expression threshold for modeling. A given gene, on average across all samples, expressed above this threshold. The default is 0. 
-#' @param cellCountThreshold The minimum number of cells in a given pseudobulk for the pseudobulk to be included in analysis. If fewer than this number of cells are found, then the sample will be dicarded The number of cells within the pseudobulked scRNA. Default is 10 cells. 
-#' @param verbose Set TRUE to display additional messages. Default is FALSE.
-#'
-#' @return output_vector A linear model
-#'
-#' @noRd
-
-thresholdGenes <- function(rnaSE,   
-                           factors = NULL,
-                        cellPopulation = 'ALL',
-                    detectionThreshold = 0.01,
-                    expressionThreshold = 0,
-                    cellCountThreshold = 10){
-    
-  if(isChAIObject(rnaSE, type = 'data', returnType = TRUE) != 'scRNA'){
-
-    stop('rnaSE is not a ChAI scRNA Object (normalized, pseudobulked via ChAI.)')
-
-  }
-    
-  detectionRates = rnaSE@metadata$detectionRates
-  summarizedData = rnaSE@metadata$summarizedData
-    
-  if(!all(cellPopulation %in% names(SummarizedExperiment::assays(rnaSE))) &
-     all(tolower(cellPopulation) != 'all')){
-      
-    stop('rnaSE does not contain an assay that matches the cellPopulation input variable.')
-      
-  }else if(all(tolower(cellPopulation) == 'all')){
-    
-          cellPopulation = SummarizedExperiment::assayNames(rnaSE)
-      
-  }
-      
-  if(!methods::is(cellCountThreshold, 'numeric')){
- 
-      stop('cellCountThreshold must be numeric.')
-      
- }
-
-  metadf = SummarizedExperiment::colData(rnaSE)
-      
-  if(!is.null(factors) & any(factors %in% colnames(metadf))){
-
-      charClass = factors[unlist(lapply(factors, function(XX) { 
-          class(metadf[,XX]) %in% c('character','factor')}))]
-      
- }else{
-    
-      charClass = character(0)
-      
-    }
-    
-  geneList = lapply(cellPopulation, function(cellPop){
-          passThreshold = SummarizedExperiment::assays(summarizedData)[['CellCounts']][cellPop,] > cellCountThreshold 
-          subDetect = detectionRates[passThreshold,]
-          subRNA = rnaSE[passThreshold,]
-      
-          if(length(charClass) == 0){
-      
-              detectMean <- rowMeans(SummarizedExperiment::assays(subDetect)[[cellPop]])
-              expressMean <- rowMeans(SummarizedExperiment::assays(subRNA)[[cellPop]])
-              
-              intersect(names(which(expressMean > expressionThreshold)),
-                                              names(which(detectMean > detectionThreshold)))
-              
-            }else{
-
-                 #Identify groups for a given categorical variable. 
-              unique(unlist(lapply(charClass, function(XX){
-                    groups = unique(metadf[passThreshold,XX])
-                    groups = groups[!is.na(groups)]
-                    unique(unlist(lapply(groups, function(ZZ){
-                                   #Test to see which genes pass threshold within that group
-                                    specificSamples = metadf[,XX] == ZZ
-                                    specificSamples[is.na(specificSamples)] = FALSE
-                                    detectMean <- rowMeans(SummarizedExperiment::assays(
-                                        subDetect[,specificSamples])[[cellPop]])
-                        
-                                    expressMean <- rowMeans(SummarizedExperiment::assays(
-                                        subRNA[,specificSamples])[[cellPop]])
-                        
-                                    intersect(names(which(expressMean > expressionThreshold)),
-                                              names(which(detectMean > detectionThreshold)))
-                              })))
-                })))
-            }
-            
-      })
-     names(geneList) = cellPopulation
-    return(geneList)
-}
                                          
                                          
 
@@ -1302,12 +850,11 @@ getPopulationMetaData <- function(ChAIObj, Measurement){
 #'                  population-level metadata (scRNA, and scATAC), gene detection rates within a sample-celltype (scRNA),
 #'                   residuals (models), and random effect variance (models)
 #' @param ChAIObj A ChAI SummarizedExperiment, whether it's a ChAI data object or a ChAI model object
-#' @param feature The type of data you want. If null, it will return the list of all options for that objct. 
-#'    Options include 'summarizedData', which contains population-specific metadata like cell counts, 
+#' @param feature The type of data you want. Options include 'summarizedData', which contains population-specific metadata like cell counts, 
 #'    'detectionRates', which contains the percentage of a population with transcript of a given gene (scRNA only)
 #'     'Residuals', which contains a SummarizedExperiment of Residuals after modeling
 #'     or 'Variance'/'RandomEffectVariance' which will return a data.frame of variance from a model. 
-#' @return A list of additional data available within a given ChAI object, or a specific data object from that ChAI object.  
+#' @return A SummarizedExperiment object with additional metadata, or a data.frame of variance. 
 #'
 #'
 #' @keywords data_object_manipulation
@@ -1321,7 +868,7 @@ getPopulationMetaData <- function(ChAIObj, Measurement){
 #' @export
 #'
 
-getAdditionalData <- function(ChAIObj, feature = NULL){
+getAdditionalData <- function(ChAIObj, feature = 'summarizedData'){
 
     objType <- isChAIObject(ChAIObj, type ='data', returnType = TRUE)
     if(objType == 'model'){
@@ -1330,33 +877,28 @@ getAdditionalData <- function(ChAIObj, feature = NULL){
 
     }
     
-    featureSet = names(ChAIObj@metadata)
- 
-    if(all(is.null(feature))){
-        
-        return(featureSet)
-        
-    }
-
-    if(length(feature) > 1 | !methods::is(feature, 'character')){
-    
-        stop('feature is not a string or is a list-like object. feature must either be NULL, or a single string.')
-        
-    }
-    
     allTypes <- getModelTypes()
 
-    if(objType %in% allTypes & feature %in% featureSet){
+    if(objType %in% allTypes & feature %in% c('Residuals')){
 
-        return(ChAIObj@metadata[[feature]])
+        return(ChAIObj@metadata[['Residuals']])
 
-    }else if(objType %in% c('scATAC', 'scRNA', 'ChromVAR', 'scRNA') & feature %in% featureSet){
+    }else if(objType %in% allTypes & feature %in% c('Variance', 'RandomEffectVariance')){
 
-        return(ChAIObj@metadata[[feature]])
+        return(ChAIObj@metadata[['RandomEffectVariance']])
+
+    }else if(objType %in% c('scATAC', 'scRNA', 'ChromVAR') & feature %in% c('summarizedData')){
+
+        return(ChAIObj@metadata[['summarizedData']])
+
+    }else if(objType %in% c('scRNA') & feature %in% c('detectionRates')){
+
+        return(ChAIObj@metadata[['detectionRates']])
 
     }else{
 
-       stop(stringr::str_interp('ChAIObject and/or feature not recognized. Set feature to NULL to see all additional data within the ChAI data or model object.'))
+       stop(stringr::str_interp('ChAIObject and feature not combination recognized. Double check your input. summarizedData can be found in ChAI objects for scATAC, scRNA, and chromVAR. 
+              detectionRates can be found in ChAI scRNA objects. Residuals and Variance are only found in model objects'))
 
     }  
 
@@ -1381,7 +923,7 @@ getAdditionalData <- function(ChAIObj, feature = NULL){
 #'
 #' @export
 #'
-getDetectionRates <- function(ChAIObj, CellType = NULL){
+getDetectionRates <- function(ChAIObj, CellType){
 
     obj <- isChAIObject(ChAIObj, type = 'data', returnType = TRUE)
 
@@ -1390,11 +932,7 @@ getDetectionRates <- function(ChAIObj, CellType = NULL){
         detectRate <- obj@metadata$detectionRates
         allTypes <- names(SummarizedExperiment::assays(detectRate))
 
-        if(all(!is.null(CellType))){
-
-            return(detectRate)
-            
-        }else if(methods::is(CellType, 'character') & length(CellType) == 1){
+        if(methods::is(CellType, 'character') & length(CellType) == 1){
 
             stop('CellType is either not a string, or is a vector of multiple strings. It must be a single string.')
 
@@ -1433,7 +971,7 @@ getDetectionRates <- function(ChAIObj, CellType = NULL){
 #' @return A boolean or String
 #' @noRd
 isChAIObject <- function(Object, type = 'data', returnType = FALSE) {
-   
+
   if (methods::is(Object, "SummarizedExperiment")){
 
     if(!any(names(Object@metadata) %in% 'History') & type == 'data'){
@@ -1446,63 +984,33 @@ isChAIObject <- function(Object, type = 'data', returnType = FALSE) {
       stop("type not recognized. Must be either 'data' or 'model'")
     }else if(type == 'data' & returnType){
 
-      specObject <- unlist(lapply(c("transformChAI", 'getSampleTileMatrix',
-                    'makePseudobulkRNA','importGeneralModality', 'reformatChromVARList', 
-                    'runSSGSEA'), function(XX){
+      specObject <- unlist(lapply(c('getSampleTileMatrix','makePseudobulkRNA','importGeneralModality', 'reformatChromVARList'), function(XX){
         
           any(grepl(XX, Object@metadata$History)) 
         }))
 
-      if(specObject[6]){
-        return('General')
-      }else if(specObject[1]){
-        return('Transformed')
-      }else if(specObject[2]){
+      if(specObject[1]){
         return('scATAC')
-      }else if(specObject[3]){
+      }else if(specObject[2]){
         return('scRNA')
-      }else if(specObject[4]){
+      }else if(specObject[3]){
         return('General')
-      }else if(specObject[5]){
+      }else if(specObject[4]){
         return('ChromVAR')
       }else{
         return('model')
       }
             
-    }else if(type == 'data'){
-
-          specObject <- unlist(lapply(c("transformChAI", 'getSampleTileMatrix',
-                    'makePseudobulkRNA','importGeneralModality', 'reformatChromVARList'), function(XX){
-        
-          any(grepl(XX, Object@metadata$History)) 
-        }))
-
-        if(any(specObject)){
-
-            return(TRUE)
-            
-        }
-
     }
 
     if(!any(names(Object@metadata) %in% 'Type') & type == 'model'){
          stop("Object is not a model object generated by ChAI.")
     } else if(!any(grepl(paste(getModelTypes(), collapse = '|'), Object@metadata$Type)) & type == 'model'){
-         stop("Object is not a ChAI model object.")
+      stop("Object is not a ChAI model object.")
     }else if(type == 'model' & returnType){
       return(Object@metadata$Type)
     }
-    return(FALSE)
 
-  }else if(methods::is(Object, "list")){
-        
-       allModels = lapply(Object, function(XX) isChAIObject(XX, type = type, returnType = returnType))
-       allModels = unique(unlist(allModels))
-       allModels = allModels[allModels != 'FALSE']
-       if(length(allModels) > 1){ return(FALSE)}
-       return(allModels)
-          
-    }else{
-      return(FALSE)
   }
+  return(TRUE)
 }

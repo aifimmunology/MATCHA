@@ -16,7 +16,7 @@ getPilotCoefficients(
 \item{returnSummary}{A boolean, to determine whether to return the individual summaries of each model, or
 to compile those results into a single data.frame for browsing. Default is TRUE (returns individual summaries)}
 
-\item{paramInterest}{A string, only used when returnSummary = FALSE. The string describes which 
+\item{paramInterest.}{A string, only used when returnSummary = FALSE. The string describes which 
 coefficient parameter you want summarized into a data.frame. 
 Options include 'estimate', 'std_error', 'z_value', and 'p_value'}
 }

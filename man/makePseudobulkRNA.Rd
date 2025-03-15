@@ -13,8 +13,7 @@ makePseudobulkRNA(
   Seurat_format = "SYMBOL",
   TxDb = NULL,
   OrgDb = NULL,
-  normalize = FALSE,
-  verbose = TRUE
+  normalize = FALSE
 )
 }
 \arguments{
@@ -35,8 +34,6 @@ makePseudobulkRNA(
 \item{OrgDb}{An Organism database to match up gene names and locations. Must be installed already. Both TxDb and OrgDb must be provided to annote the gene locations.}
 
 \item{normalize}{A boolean to determine whether or not to return DESeq2-normalized counts, or raw aggregated counts. Default is TRUE.}
-
-\item{verbose}{Boolean. Default is TRUE, and will print messages.}
 }
 \value{
 A SummarizedExperiment carrying pseudobulked average expression per 1000 cells for each cell type.

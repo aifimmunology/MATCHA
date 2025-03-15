@@ -40,6 +40,8 @@ exp1 is the dummy variable for gene expression and exp2 is the dummy variable fo
 If a list of pairs is provided as a list of strings, it will only test those. These pairs should be a subset of all possible pairs of sig1 and sig2.}
 
 \item{numCores}{Optional, the number of cores to use with multiprocessing. Default is 2.}
+
+\item{family}{String. Can be 'negativeBinomial1', 'negativeBinomial2', or 'poisson'. Default is 'poisson', which handles the zeros best.}
 }
 \value{
 A named list of model outputs

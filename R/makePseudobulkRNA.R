@@ -12,7 +12,6 @@
 #' @param Seurat_format A string, describing the gene name format of the Seurat object. This is used to annotate gene loci, and convert IDs. See documentation for AnnotationDbi::mapIds to identify formats. Default is 'SYMBOL', but 'ENSEMBL' is also common.
 #' @param TxDb A Transcript database to be used for identifying gene locations. Must be installed already. Both TxDb and OrgDb must be provided to annote the gene locations.
 #' @param OrgDb An Organism database to match up gene names and locations. Must be installed already. Both TxDb and OrgDb must be provided to annote the gene locations.
-#' @param verbose Boolean. Default is TRUE, and will print messages. 
 #' @return A SummarizedExperiment carrying pseudobulked average expression per 1000 cells for each cell type. 
 #'
 #' @keywords data_import
@@ -26,18 +25,12 @@ makePseudobulkRNA <- function(SO, cellTypeColumn, sampleColumn = "Sample",
                                  Seurat_format = 'SYMBOL',
                                  TxDb = NULL, 
                                  OrgDb = NULL,
-                                normalize = FALSE,
-                             verbose = TRUE) {
+                                normalize = FALSE) {
 
     if(any(!c(cellTypeColumn, sampleColumn) %in% colnames(SO@meta.data))){
 
         stop('Sample or cell type columns are missing from Seurat object. Please verify that the provided column names are correct.')
 
-    }
-    
-    if(numCores > 3){
-    
-        warning('User requested to multithread over more than 3 cores. More multithreading will lead to greater memory usage')
     }
     
     if(is.null(TxDb) & !is.null(OrgDb)){
@@ -57,7 +50,7 @@ makePseudobulkRNA <- function(SO, cellTypeColumn, sampleColumn = "Sample",
         stop('The TxDb provided is not a Transcript Database. Please provide a Transcript Database or NULL.')
     }
         
-     
+
     #Generate sample and cell type column in metadata for pseudobulking (after filtering down)
     metadata <- as.data.frame(SO@meta.data)
     counts <- SO@assays$RNA@counts
@@ -74,11 +67,6 @@ makePseudobulkRNA <- function(SO, cellTypeColumn, sampleColumn = "Sample",
     if(any(is.na(SO@meta.data[[sampleColumn]]))){
         stop('Some values within the sampleColumn are NA. Please correct the NAs or choose a different column for sample identification.')
     }
-    if(all(rownames(metadata) == c(1:dim(metadata)[1]))){
-
-        stop('Seurat metadata has corrupted rownames. Please make sure the Seurat object has cell names saved.')
-        
-    }
 
     if(all(tolower(cellPopulations) == 'all')){
         cellPopulations <- unique(metadata$CellTypeColumn)
@@ -93,50 +81,37 @@ makePseudobulkRNA <- function(SO, cellTypeColumn, sampleColumn = "Sample",
     sampleList <- unique(SO@meta.data[,sampleColumn])
     emptySample = counts[,1]
     emptySample[TRUE] = 0
-
-    if(verbose){     message("Generating sample List")    }
+    cl <- parallel::makeCluster(numCores)
     
-    metadata$Cells = rownames(metadata)
-    cellTypeListDFs <- dplyr::group_split(metadata, CellTypeColumn)
-    names(cellTypeListDFs) = unlist(lapply(cellTypeListDFs, function(XX) unique(XX$CellTypeColumn)))
-    ## Subset down to desired populations
-     cellTypeListDFs =  cellTypeListDFs[cellPopulations]
-    # Create list to iterate over. 
-    subSampleList <- pbapply::pblapply(cl = NULL, X =  cellTypeListDFs, function(XX){
-                            subMeta = dplyr::group_split(XX, !!as.name(sampleColumn))
-                            subCells = lapply(subMeta, function(ZZ) ZZ$Cells)
-                            names(subCells) = unlist(lapply(subMeta, function(ZZ) unique(ZZ[,sampleColumn])))
-                            subCells
+    subSample_list <- pbapply::pblapply(cl = cl, X= cellTypeList, .subSampleList, 
+                                   sampleList1 = sampleList,
+                                   sampleColumn1 = sampleColumn, metadata1 = metadata)
+    counts_ls <- lapply(subSample_list, function(XX){    
+    
+                    bothLists <- lapply(XX, function(YY){
+                        
+                         if(length(YY) > 0){
+                                list(unlist(rowSums(as.matrix(counts[,YY]))), 
+                                     unlist(rowSums(as.matrix(counts[,YY] > 0))/length(YY)))
+                            }else{
+                                emptySample
+                            }
+                        
                         })
     
-    if(verbose){  message("Processing total counts and percent detection.")    }
-                                                     
-    if(numCores > 1){
-        cl <- parallel::makeCluster(numCores)
-    }else{
-        cl = NULL
-    }
-                                                     
-    iterList = lapply(subSampleList, function(ZZ){
-                    list('Cells' = ZZ, 
-                         'Counts' = as.matrix(counts[,unlist(ZZ)]),
-                         'sampleList' = sampleList)
-                })
-    gc()
-    rm(counts)
-    countList <- pbapply::pblapply(cl = cl, X = iterList, 
-                                   .processCounts, returnCounts = TRUE,
-                                   emptySample = emptySample)
-    gc()
-    percentList <- pbapply::pblapply(cl = cl, X = iterList, .processCounts, 
-                                     returnCounts = FALSE, emptySample = emptySample)
+                  counts <- do.call('cbind', lapply(bothLists, function(z) z[[1]]))
+                  percent <- do.call('cbind', lapply(bothLists, function(z) z[[2]]))
+        
+                colnames(counts) <- colnames(percent) <- sampleList                                     
+                list(counts, percent)
+        })
+                                     
+    countList = lapply(counts_ls, function(x) x[[1]])
+    percentList = lapply(counts_ls, function(x) x[[2]])  
                        
     names(countList) <- names(percentList) <- cellTypeList
                          
-    if(numCores > 1){
-        parallel::stopCluster(cl)
-    }
-    rm(iterList)
+    parallel::stopCluster(cl)
                          
     ##Sort sample-level metadata
     cellColDataNoNA <- BiocGenerics::Filter(function(x) {
@@ -150,11 +125,11 @@ makePseudobulkRNA <- function(SO, cellTypeColumn, sampleColumn = "Sample",
     # Set sampleIDs as rownames
     rownames(sampleData) <- sampleData[[sampleColumn]]
     sampleData$Sample = sampleData[[sampleColumn]]
-
+                         
     ## Save percent detected for each gene.
     percentDetected <- SummarizedExperiment::SummarizedExperiment(
                percentList,
-                colData = sampleData[sampleList,]
+                colData = sampleData
     )
 
     #Get cell numbers
@@ -185,9 +160,7 @@ makePseudobulkRNA <- function(SO, cellTypeColumn, sampleColumn = "Sample",
     summarizedData_df <- dplyr::group_by(cellColDataCopy, CellTypeColumn, !!as.name(sampleColumn))
     if (!is.null(additionalCellData)) {
         
-        if(verbose){     message("Processing additional metadata.")    }
-        
-        additionalMetaData <- pbapply::pblapply(cl = NULL, X = additionalCellData, function(x) {
+        additionalMetaData <- lapply(additionalCellData, function(x) {
            
 
             suppressMessages(
@@ -219,14 +192,12 @@ makePseudobulkRNA <- function(SO, cellTypeColumn, sampleColumn = "Sample",
         additionalMetaData <- NULL
 
     }
-                      
     remove(cellColDataCopy)
 
     summarizedData <- SummarizedExperiment::SummarizedExperiment(
             append(
             list(
-                "CellCounts" = allCellCounts[rownames(additionalMetaData[[1]]),
-                                             colnames(additionalMetaData[[1]])]
+                "CellCounts" = allCellCounts
             ),
             additionalMetaData
             ),
@@ -242,8 +213,40 @@ makePseudobulkRNA <- function(SO, cellTypeColumn, sampleColumn = "Sample",
     #Pull in Transcript and Organism databases. 
     if(!is.null(TxDb) & !is.null(OrgDb)){
         
-        newSE <- linkToGenome(rnaSE = rnaSE, gene_format = Seurat_format, 
-                              TxDb= TxDb, OrgDb = OrgDb)
+        if (!requireNamespace("AnnotationDbi", quietly = TRUE)) {
+              stop(
+              "Package 'AnnotationDbi' is required for adding gene location information.",
+              "Please install AnnotationDbi'from Bioconductor to proceed."
+              )
+        }
+
+        #Extact the GenomicRanges for all genes, while filtering out non-standard chromosomes that mess things up. 
+        txList <- suppressMessages(suppressWarnings(S4Vectors::stack(GenomicFeatures::genes(TxDb,
+                                                single.strand.genes.only = FALSE))))
+        txList <- suppressMessages(GenomeInfoDb::keepStandardChromosomes(sort(txList), 
+                                    species='Homo_sapiens',
+                                      pruning.mode = 'coarse'))
+        #Reduce ranges merges transcripts for the same gene into one, so that we can one ball-park stop and end. 
+        txList <- plyranges::reduce_ranges_directed(plyranges::group_by(txList, gene_id))
+        txList$GeneSymbol <- suppressWarnings(AnnotationDbi::mapIds(OrgDb, as.character(txList$gene_id), Seurat_format, "ENTREZID"))
+        txList <- plyranges::filter(txList, !is.na(GeneSymbol) & GeneSymbol %in% rownames(rnaSE))
+        txList$MultipleMappings = txList$GeneSymbol %in% txList$GeneSymbol[duplicated(txList$GeneSymbol)]
+        txList <- plyranges::slice(plyranges::group_by(txList, GeneSymbol), 1)
+        names(txList) <- txList$GeneSymbol
+        txList <- plyranges::ungroup(txList)
+        promoters <- GenomicRanges::promoters(txList)
+        promoters <- paste(GenomicRanges::seqnames(promoters), ":", GenomicRanges::start(promoters),"-", GenomicRanges::end(promoters), sep = '')
+        txList$Promoters = promoters
+        txList$Strand_Direction = as.character(GenomicRanges::strand(txList))
+        ## Some genes are mapped to both positive and negative strands, and some miRNAs are provisionally mapped to multiple locations. 
+        ## Let's just take the first location for these. 
+
+        #Subset down the read count matrix to just the transcripts we ahve in this database.
+        newSE <- rnaSE[rownames(rnaSE)  %in% txList$GeneSymbol, ]
+        
+        # Repackage the gene-sample matrices, the sampleData, transcript Genomic Ranges, and associated metadata (countInfo) into one SummarizedExperiment object. 
+        attachedList <- plyranges::ungroup(txList)
+        SummarizedExperiment::rowRanges(newSE) = attachedList[match(rownames(newSE), names(attachedList))]
        
     }else{
         newSE <- rnaSE
@@ -279,191 +282,6 @@ makePseudobulkRNA <- function(SO, cellTypeColumn, sampleColumn = "Sample",
         return(cellNameList)
 }
 
-#' @title \code{processCounts}
-#'
-#' @description \code{processCounts} Helper function for makePseudobulkRNA. 
-
-#'
-#' @param sampleList_index One index from the subSampleList
-#' @param returnCounts Boolean. If true, will return count matrix. If false, will return percent detected. 
-#' @param emptySamples A matrix representing an empty sample (all genes 0)
-#' @return a list of matrices, either counts or percent detected
-#'
-#' @noRd
-                   
-
-.processCounts <- function(sampleList_index, returnCounts = TRUE, emptySamples){
-    
-    if(returnCounts){     
-
-    matList <- lapply(sampleList_index[[1]], function(YY){
-                        
-            if(length(YY) > 1){
-                    unlist(rowSums(sampleList_index[[2]][,YY]))
-            }else if(length(YY) == 1){
-                sampleList_index[[2]][,YY]
-            }else{
-                emptySample
-            }
-
-        }) 
-
-    }else{
-
-        matList <- lapply(sampleList_index[[1]], function(YY){
-
-                if(length(YY) > 1){
-                        unlist(rowSums(sampleList_index[[2]][,YY] > 0))/length(YY)
-                }else if(length(YY) == 1){
-                    as.integer(sampleList_index[[2]][,YY] > 0)
-                }else{
-                    emptySample
-                }
-
-            }) 
-	
-    }
-
-    mat <- do.call('cbind', matList)
-    colnames(mat) <- names(sampleList_index[[1]])
-    ## Identify and fill in missing samples with NAs. 
-    if(any(!sampleList_index[[3]] %in% colnames(mat))){
-        
-        missingSamples = sampleList_index[[3]][!sampleList_index[[3]] %in% colnames(mat)]
-        
-        for(newCol in missingSamples){
-        
-            mat = cbind(mat, newCol = 0)
-            colnames(mat)[colnames(mat) == 'newCol'] = newCol
-        }
-        
-    }
-    mat = mat[,sampleList_index[[3]]]
-    
-    return(mat)
-}
-
-#' @title \code{linkToGenome}
-#'
-#' @description \code{linkToGenome} Helper function for makePseudobulkRNA. Links genes to genomic loci, and tosses poorly annotated transcripts. 
-#'
-#' @param rnaSE the output of makePseudobulkRNA
-#' @param gene_format A string, describing the gene name format of the Seurat object. This is used to annotate gene loci, and convert IDs. See documentation for AnnotationDbi::mapIds to identify formats. Default is 'SYMBOL', but 'ENSEMBL' is also common.
-#' @param TxDb A Transcript database to be used for identifying gene locations. Must be installed already. Both TxDb and OrgDb must be provided to annote the gene locations.
-#' @param OrgDb An Organism database to match up gene names and locations. Must be installed already. Both TxDb and OrgDb must be provided to annote the gene locations.
-#' @return a list of metadata by celltype and sample
-#'
-#' @keywords data_import
-#'
-#' @export
-
-linkToGenome <- function(rnaSE, TxDb= NULL, OrgDb = NULL, gene_format = 'SYMBOL'){
-
-    ## fix global bindings
-    ALIAS <- SYMBOL <- NULL
-    if(!is.null(TxDb) & !is.null(OrgDb)){
-        if (!requireNamespace("AnnotationDbi", quietly = TRUE)) {
-                stop(
-                "Package 'AnnotationDbi' is required for adding gene location information.",
-                "Please install AnnotationDbi'from Bioconductor to proceed."
-                )
-        }
-
-        #Extact the GenomicRanges for all genes, while filtering out non-standard chromosomes that mess things up. 
-        txList <- suppressMessages(suppressWarnings(S4Vectors::stack(GenomicFeatures::genes(TxDb,
-                                                single.strand.genes.only = FALSE))))
-        txList <- suppressMessages(GenomeInfoDb::keepStandardChromosomes(sort(txList), 
-                                    species='Homo_sapiens',
-                                        pruning.mode = 'coarse'))
-        #Reduce ranges merges transcripts for the same gene into one, so that we can one ball-park stop and end. 
-        txList <- plyranges::reduce_ranges_directed(plyranges::group_by(txList, gene_id))
-        txList$GeneSymbol <- suppressWarnings(AnnotationDbi::mapIds(OrgDb, as.character(txList$gene_id), gene_format, "ENTREZID"))
-        txList <- plyranges::filter(txList, !is.na(GeneSymbol))
-        txList$MultipleMappings = txList$GeneSymbol %in% txList$GeneSymbol[duplicated(txList$GeneSymbol)]
-        txList <- plyranges::slice(plyranges::group_by(txList, GeneSymbol), 1)
-        names(txList) <- txList$GeneSymbol
-        txList <- plyranges::ungroup(txList)
-        promoters <- GenomicRanges::promoters(txList)
-        promoters <- paste(GenomicRanges::seqnames(promoters), ":", GenomicRanges::start(promoters),"-", GenomicRanges::end(promoters), sep = '')
-        txList$Promoters = promoters
-        txList$Strand_Direction = as.character(GenomicRanges::strand(txList))
-        ## Some genes are mapped to both positive and negative strands, and some miRNAs are provisionally mapped to multiple locations. 
-        ## Let's just take the first location for these. 
-        
-        if(any(!rownames(rnaSE)  %in% txList$GeneSymbol)){
-
-            ## if it's a gene symbol, sometimes there's mismatches, with multiple potential gene names. 
-            ## let's make sure that isn't the case, and match up names that don't match the database for SYMBOL. 
-            if(gene_format == 'SYMBOL'){
-               lostTxs <- rownames(rnaSE)[!rownames(rnaSE)  %in% txList$GeneSymbol]
-                #Check for missed due to '.2' gene name versions
-               
-               aliasAnnot <- AnnotationDbi::select(OrgDb, keys=lostTxs,
-                        columns=c("SYMBOL","ENTREZID"), 
-                                                   keytype="ALIAS")
-                # Filter to matching SYMBOL
-                # Identify all ALIASes that were matched well
-                aliasAnnot1  <- dplyr::filter(aliasAnnot , !is.na(SYMBOL))
-                # Identify all ALIASes that didn't. 
-                # Remove .[0-9] and try again.
-                aliasAnnot2  <- dplyr::filter(aliasAnnot , is.na(SYMBOL))
-                aliasAnnot2  <- dplyr::mutate(aliasAnnot2, ALIAS2 =
-                                              gsub("\\.[0-9].*","", ALIAS))
-                aliasAnnot3 <- AnnotationDbi::select(OrgDb, 
-                            keys=unique(aliasAnnot2$ALIAS2),
-                        columns=c("SYMBOL","ENTREZID"), 
-                                                   keytype="ALIAS") 
-                aliasAnnot3 <- dplyr::filter(aliasAnnot3, !is.na(SYMBOL))
-                aliasAnnot3 <- dplyr::inner_join(
-                                    aliasAnnot2[,c('ALIAS', 'ALIAS2')],
-                                    aliasAnnot3, 
-                            by = c('ALIAS2' = 'ALIAS'))[,
-                                        c('ALIAS','SYMBOL','ENTREZID')]
-                aliasAnnot4 <- dplyr::filter(rbind(aliasAnnot1, aliasAnnot3),
-                                             SYMBOL  %in% txList$GeneSymbol &
-                                            !SYMBOL %in% rownames(rnaSE))
-                aliasAnnot5 <- dplyr::slice_head(
-                                    dplyr::group_by(aliasAnnot4, ALIAS),
-                                    n=1)
-              
-                subTx <- txList[txList$GeneSymbol %in% aliasAnnot5$SYMBOL]
-                subTx$Alias = subTx$GeneSymbol
-                subTx$GeneSymbol = aliasAnnot4$ALIAS[match(subTx$GeneSymbol, 
-                                                       aliasAnnot5$SYMBOL)]
-                names(subTx) = subTx$GeneSymbol
-                subTx$Alias = aliasAnnot4$ALIAS[match(subTx$GeneSymbol, 
-                                                       aliasAnnot5$SYMBOL)]
-                txList = sort(c(txList, subTx))
-
-              
-            }
-            #Identify Transcripts that were removed.
-            lostTxs <- rownames(rnaSE)[!rownames(rnaSE)  %in% txList$GeneSymbol]
-            
-            #Subset down the read count matrix to just the transcripts we have in this database.
-            newSE <- rnaSE[rownames(rnaSE)  %in% txList$GeneSymbol, ]
-            
-            message(stringr::str_interp("${length(lostTxs)} transcripts were not found within the provided transcript/organism database, or               did not have a clear genomic location within the standard chromosome assembly for your organism. 
-                Filtered transcript IDs are saved in metadata, via obj@metadata[['filteredIDs']]."))
-                    
-            newSE@metadata = append(newSE@metadata, list('filteredIDs' = lostTxs))
-
-        }
-            
-        #Subset down the read count matrix to just the transcripts we have in this database.
-        newSE <- rnaSE[rownames(rnaSE)  %in% txList$GeneSymbol, ]
-        
-        # Repackage the gene-sample matrices, the sampleData, transcript Genomic Ranges, and associated metadata (countInfo) into one SummarizedExperiment object. 
-        attachedList <- plyranges::ungroup(txList)
-        SummarizedExperiment::rowRanges(newSE) = attachedList[match(rownames(newSE), names(attachedList))]
-       
-    }else{
-        newSE <- rnaSE
-        warning('No TxDb and/or OrgDb provided.')
-    }
-    return(newSE)
-}
-
 
 
 #' @title Normalize a ChAI scRNA object using DESEq2
@@ -489,10 +307,8 @@ normalizePseudobulk <- function(rnaSE, sampleColumn = 'Sample'){
     }
 
     allMat <- lapply(names(SummarizedExperiment::assays(rnaSE)), function(x){
-                print(x)
                 old_mat <- SummarizedExperiment::assays(rnaSE)[[x]]
                 old_mat[is.na(old_mat)] = 0
-                old_mat = round(old_mat) #ensure integers
                 suppressMessages(
                     dds <- DESeq2::DESeqDataSetFromMatrix(countData = old_mat[,colSums(old_mat) > 0],
                               colData = SummarizedExperiment::colData(rnaSE)[colSums(old_mat) > 0,],

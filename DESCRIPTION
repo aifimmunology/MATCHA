@@ -18,18 +18,17 @@ Authors@R:
     )
 Maintainer: 
         Imran McGrath <imran.mcgrath@alleninstitute.org>
-Description: A statistical framework for high-throughput generalized linear mixed effect modeling of multiple types of data, taken from the same samples. This package enables the rapid analysis of massive single cell datasets (>1 M+), and then integrating those results into bulk-level measurements, like olink, flow cytometry, or CBC data. scRNA-seq, scATAC-seq, and ChromVAR are explicitly supported, while any other types of data can be imported via importGeneralModality.This import strategy has been successful for the analysis and integration of Olink proteomic measurements and cell type frequencies (from scRNA or flow cytometry).
-    After data import, each modality can be modeled individual, and specific features from each data type can be associated across data types to test hypothesis (e.g. what gene could this epigenetic region be influencing? What gene expression could this ligand be activating? What cell type frequency could this serum protein be influencing?). Finally, the results can be integrated into networks, and exported for viewing in IGV viewer (Gene expression-Accessibility relationships), or any network construction tool (e.g. Cytoscape). Examples of possible networks include Gene-regulatory networks (Motif-Accessibility-Gene expression), proliferation-related Signaling cascades (serum proteins, gene expression, cellular frequencies). 
-    Methodology-wise, the package is built entirely around the usage of SummarizedExperiments, to allow easy use and maximum capability with other packages. All modeling is down using glmmTMB, enabling a random effects, zero-inflated modeling, and wide range of data distribution. Support functions allow for easy access to information in data objects or model objects (the output from high-throughput modeling). 
-    All in all, ChAI provides the ability to analyze and integrate multimodal data, regardless of modality, from large scale human cohorts. The ultimate goal is to identify and reconstruct disease-relevant pathways, whether signaling pathways, gene regulatory networks, or other. 
+Description: 
+    A statistical framework for high-throughput generalized linear mixed effect modeling of multiple types of data, taken from the same samples. This package enables the rapid analysis of massive single cell datasets (>1 M+), and then integrating those results into bulk-level measurements, like olink, flow cytometry, or CBC data. scRNA-seq, scATAC-seq, and ChromVAR are explicitly supported, while any other types of data can be imported via importGeneralModality.This import strategy has been successful for the analysis and integration of Olink proteomic measurements and cell type frequencies (from scRNA or flow cytometry). After data import, each modality can be modeled individual, and specific features from each data type can be associated across data types to test hypothesis (e.g. what gene could this epigenetic region be influencing? What gene expression could this ligand be activating? What cell type frequency could this serum protein be influencing?). Finally, the results can be integrated into networks, and exported for viewing in IGV viewer (Gene expression-Accessibility relationships), or any network construction tool (e.g. Cytoscape). Examples of possible networks include Gene-regulatory networks (Motif-Accessibility-Gene expression), proliferation-related Signaling cascades (serum proteins, gene expression, cellular frequencies). Methodology-wise, the package is built entirely around the usage of SummarizedExperiments, to allow easy use and maximum capability with other packages. All modeling is down using glmmTMB, enabling a random effects, zero-inflated modeling, and wide range of data distribution. Support functions allow for easy access to information in data objects or model objects (the output from high-throughput modeling). All in all, ChAI provides the ability to analyze and integrate multimodal data, regardless of modality, from large scale human cohorts. The ultimate goal is to identify and reconstruct disease-relevant pathways, whether signaling pathways, gene regulatory networks, or other. 
 License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.1
 Depends: R (>= 4.1.0)
 Imports:
     data.table,
     knitr,
+    chromVAR,
     plyranges (>= 1.14.0),
     dplyr,
     GenomicRanges,
@@ -54,7 +53,6 @@ Imports:
 Suggests: 
     motifmatchr,
     BiocManager,
-    chromVAR,
     testthat (>= 3.0.0),
     Matrix,
     spelling,

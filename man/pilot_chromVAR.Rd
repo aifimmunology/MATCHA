@@ -5,7 +5,7 @@
 \title{Test formulas for modeling ChromVAR motif Z-scores}
 \usage{
 pilot_chromVAR(
-  chromSE,
+  MotifObj,
   cellPopulation = NULL,
   modelFormula,
   numCores = 1,
@@ -14,7 +14,7 @@ pilot_chromVAR(
 )
 }
 \arguments{
-\item{chromSE}{A SummarizedExperiment-type object generated from makeChromVAR.}
+\item{MotifObj}{A SummarizedExperiment-type object generated from makeChromVAR.}
 
 \item{cellPopulation}{Name of a cell type within the ChAI ChromVAR Object}
 

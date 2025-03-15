@@ -22,14 +22,14 @@ pilot_scATAC(
 
 \item{modelFormula}{The formula for the continuous data that should be used within glmmTMB. It should be in the
 format (exp ~ factors). All factors must be found in column names
-of the atacSE metadata, except for CellType, FragmentCounts and CellCount, which will be extracted from the atacSE.
+of the atacSE metadata, except for CellType, FragNumber and CellCount, which will be extracted from the atacSE.
 modelFormula must start with 'exp' as the response.
 See \link[glmmTMB]{glmmTMB}.}
 
 \item{ziFormula}{The formula for the zero-inflated data that should be used within glmmTMB. It should be in the
 format ( ~ factors). All factors must be found in column names
-of the atacSE colData metadata, except for CellType, FragmentCounts and CellCount, which will be extracted from the atacSE.
-FragmentCounts and CellCounts will be log10 normalized within the function.}
+of the atacSE colData metadata, except for CellType, FragNumber and CellCount, which will be extracted from the atacSE.
+FragNumber and CellCounts will be log10 normalized within the function.}
 
 \item{zi_threshold}{Zero-inflated threshold ( range = 0-1), representing the fraction of samples with zeros. At or above this threshold, the zero-inflated modeling kicks in.}
 
@@ -37,7 +37,7 @@ FragmentCounts and CellCounts will be log10 normalized within the function.}
 
 \item{numCores}{Number of cores to provide to glmmTMB for parallelization.}
 
-\item{featureSample}{integer or the output of a previous run of pilot_scATAC, if you want to test the exact same features as before. If integer, stratified sampling will occur to identify features to test, with a minimum of 10. If a previous run, then previous run must be on the same cell types as before.}
+\item{featureSample}{integer or vector of characters describing the features to test. If integer, stratified sampling will occur to identify features to test, with a minimum of 10. If a character vector, then all strings must align to features you want to test.}
 }
 \value{
 results model results
@@ -50,7 +50,7 @@ results model results
   modelList <- pilot_scATAC(STM, 
                            'CD16 Mono',
                            exp~ Age + Sex + days_since_symptoms + (1|PTID),
-                            ~ 0 + FragmentCounts, verbose = TRUE )
+                            ~ FragNumber, verbose = TRUE )
 }
 
 }

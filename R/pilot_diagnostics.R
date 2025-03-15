@@ -57,10 +57,10 @@ pilotPredictions <- function(modelList, specVariable = NULL, returnList = FALSE)
             df <- as.data.frame(modelList[[i]]$frame)
             feature <- names(modelList)[i]
               
-            ## Log transform the FragmentNumbers so as to stabilize the model. But only if FragmentCounts is in the model. Same for CellCounts.
-            if(any(colnames(df ) %in% c('FragmentCounts'))){
-                df$rawFragmentCounts = df$FragmentCounts
-                df$FragmentCounts <- log10(df$FragmentCounts)
+            ## Log transform the FragmentNumbers so as to stabilize the model. But only if FragNumber is in the model. Same for CellCounts.
+            if(any(colnames(df ) %in% c('FragNumber'))){
+                df$rawFragNumber = df$FragNumber
+                df$FragNumber <- log10(df $FragNumber)
             }
             if(any(colnames(df ) %in% c('CellCounts'))){
                 df$rawCellCounts = df$CellCounts
@@ -178,7 +178,7 @@ pilotPredictions <- function(modelList, specVariable = NULL, returnList = FALSE)
 #' @param pilotModelList A list of models, output from any pilot modeling functions. 
 #' @param returnSummary A boolean, to determine whether to return the individual summaries of each model, or
 #'         to compile those results into a single data.frame for browsing. Default is TRUE (returns individual summaries) 
-#' @param paramInterest A string, only used when returnSummary = FALSE. The string describes which 
+#' @param paramInterest. A string, only used when returnSummary = FALSE. The string describes which 
 #'       coefficient parameter you want summarized into a data.frame. 
 #'       Options include 'estimate', 'std_error', 'z_value', and 'p_value'
 #' @return modelList a list of outputs from glmmTMB
@@ -210,7 +210,7 @@ getPilotCoefficients <- function(pilotModelList, returnSummary = TRUE, paramInte
     names(options1) = c('estimate', 'std_error', 'z_value', 'p_value')
        
     if(!tolower(paramInterest) %in% names(options1)){
-        
+    
         stop('paramInterest not recognized. Must be estimate, std_error, z_value, or p_value')
         
     }
@@ -257,36 +257,22 @@ getPilotCoefficients <- function(pilotModelList, returnSummary = TRUE, paramInte
 #' @keywords evaluating_pilot
 
 getConvergenceRate <- function(modelList){
+
+    modelOuts <- getPilotCoefficients(modelList)
+    ## Identify types of model outputs. If it's a list of length 3, then it'll be 
+    modelOutLengths <- lengths(modelOuts)
     
-    if(all(unlist(lapply(modelList, function(XX)methods::is(XX, 'list')))) & 
-        !('error' %in% names(modelList[[1]]))){
-        
-       tmp1 = lapply(names(modelList), function(XX){
-               print(XX)
-               getConvergenceRate(modelList[[XX]])
-           })
-           
-    }else{ 
-        modelOuts <- getPilotCoefficients(modelList)
-        ## Identify types of model outputs. If it's a list of length 3, then it'll be 
-        modelOutLengths <- lengths(modelOuts)
+    mainFailure = sum(modelOutLengths !=3)
+    otherFailure <- sum(unlist(lapply(which(modelOutLengths == 3), function(XX){
+            modelOutTmp <- modelOuts[[XX]]$cond[,2]
+            all(is.na(modelOutTmp[names(modelOutTmp) != '(Intercept)']))
+        })))
+    
+    totalNumber = length(modelList)
 
-        mainFailure = sum(modelOutLengths !=3)
-        otherFailure <- sum(unlist(lapply(which(modelOutLengths == 3), function(XX){
-                if(dim(modelOuts[[XX]]$cond)[1] > 1){
-                    modelOutTmp <- modelOuts[[XX]]$cond[,2]
-                    all(is.na(modelOutTmp[names(modelOutTmp) != '(Intercept)']))
-                }else{
-                    is.na(modelOuts[[XX]]$cond[,2])
-                }
-            })))
+    successNumber = totalNumber-sum(mainFailure + otherFailure)
 
-        totalNumber = length(modelList)
-
-        successNumber = totalNumber-sum(mainFailure + otherFailure)
-
-        message('Convergence Rate: ', successNumber/totalNumber*100, '%')
-    }
+    message('Convergence Rate: ', successNumber/totalNumber*100, '%')
 
 }
 
@@ -314,22 +300,14 @@ plotPilotFits <- function(modelList, fileName){
     pdfName2 <- paste(fileName, '.pdf', sep ='')
 
     grDevices::pdf(pdfName2)
-    
-    if(all(unlist(lapply(modelList, function(XX)methods::is(XX, 'list')))) & 
-        !('error' %in% names(modelList[[1]]))){
-        
-       lapply(modelList, plotPilotFits)
-           
-    }else{
 
-        for(i in 1:length(modelList)){
+    for(i in 1:length(modelList)){
 
-             tryCatch({
-                    print(DHARMa::simulateResiduals(modelList[[i]], plot= T))
-                }, error = function(e){
-                    return(e)
-                })
-        }
+         tryCatch({
+                print(DHARMa::simulateResiduals(modelList[[i]], plot= T))
+            }, error = function(e){
+                return(e)
+            })
     }
 
    
@@ -363,15 +341,6 @@ plotPilotFits <- function(modelList, fileName){
 
 testPilotFits <- function(modelList, numCores = 1){
 
-    if(all(unlist(lapply(modelList, function(XX)methods::is(XX, 'list')))) & 
-        !('error' %in% names(modelList[[1]]))){
-        
-       allRes <- lapply(modelList, testPilotFits, numCores = numCores)
-       names(allRes) = names(modelList)
-       return(allRes)
-           
-   }
-    
     if(numCores <= 1){
         cl = NULL
     }else{
@@ -383,7 +352,8 @@ testPilotFits <- function(modelList, numCores = 1){
         
     }
   # Make your clusters for efficient parallelization
-   testFits <- function(i){
+
+    testFits <- function(i){
     
         tryCatch({
             testFit <- DHARMa::simulateResiduals(i, plot= F)
@@ -442,14 +412,6 @@ drop1Analysis <- function(modelList, numCores = 1){
     
     message('Running drop1Analysis, assuming that the models only involve a continuous component.')
     
-    if(all(unlist(lapply(modelList, function(XX)methods::is(XX, 'list')))) & 
-        !('error' %in% names(modelList[[1]]))){
-        
-       allRes <- lapply(modelList, drop1Analysis, numCores = numCores)
-       names(allRes) = names(modelList)
-       return(allRes)
-           
-   }
     
     if(numCores <= 1){
         cl = NULL
@@ -458,7 +420,7 @@ drop1Analysis <- function(modelList, numCores = 1){
         cl <- parallel::makeCluster(numCores)
        
     }
-        browser()
+        
     model_drops <-  pbapply::pblapply(cl = cl, X= modelList, testDrop)
     
     modelDF <- do.call('rbind', model_drops)
@@ -490,9 +452,8 @@ testDrop <- function(res){
          df <- tryCatch({
             drop1Test <- as.data.frame(stats::drop1(res, test = 'Chisq'))
             drop1Test$Factor = rownames(drop1Test)
-            drop1Test$Factor[1] = 'None'
             colnames(drop1Test) <- c('Df', 'AIC','LRT', 'P_Value', 'Factor')
-            tidyr::pivot_wider(drop1Test[,c('AIC', 'P_Value','Factor')], 
+            tidyr::pivot_wider(drop1Test[-1,c('AIC', 'P_Value','Factor')], 
                             names_from = 'Factor', 
                             values_from = c('AIC', 'P_Value'))
         }, error = function(e){
@@ -505,10 +466,10 @@ testDrop <- function(res){
 #' @title summarizeResFits
 #'
 #' @description \code{summarizeResFits} Summarized the output of testPilotFits, allowing a quick summary of how many models (as a percentage) failed which tests. 
-#' @param summaryOfFits A data frame, generated by testPilotFits
+#' @param outputOfResFits A data frame, generated by testPilotFits
 #' @param threshold A p-value threshold used for the various tests, to check whether the model for a feature failed a test. The standard is p = 0.05.
 #' @param uncorrected A boolean, indicating whether to use the nominal p-value for each statistical tests, or to convert those p-values to a corrected p-value before calculating the percentage of models that failed a given test. Default is TRUE. If FALSE, then corrected p-values are used. 
-#' @param correctionType A string, documenting which type of p-value adjustment to use, if uncorrected = FALSE. See R documentation on p.adjust for options. 
+#' @param correctionType. A string, documenting which type of p-value adjustment to use, if uncorrected = FALSE. See R documentation on p.adjust for options. 
 #' @param na.rm Some tests may generate NAs. This removes those NAs when calculating the percent failed. Default is FALSE. 
 #' @param verboseOutput A boolean flag, that determines whether to print the results as a percentage, or return a named vector with numeric values. 
 #' @return A named lists, showing what percentage of models failed a given test. 
@@ -529,24 +490,6 @@ summarizeResFits <- function(summaryOfFits,
                              correctionType = 'fdr',
                              verboseOutput = TRUE,
                              na.rm = FALSE){
-    
-    if(!methods::is(summaryOfFits, 'data.frame')){
-        
-       allRes <- do.call('cbind',lapply(summaryOfFits, function(ZZ){
-               summarizeResFits(ZZ, 
-                             threshold = threshold,
-                             uncorrected = uncorrected,
-                             correctionType = correctionType,
-                             verboseOutput = verboseOutput,
-                             na.rm = na.rm)
-           }))
-    
-       colnames(allRes) = paste(names(summaryOfFits),'Failed',sep = "_")
-       return(allRes)
-           
-   }
-    
-    
     if(!methods::is(summaryOfFits, 'data.frame')){
         stop('summaryOfFits is not a data.frame')
     }
@@ -562,7 +505,7 @@ summarizeResFits <- function(summaryOfFits,
     }else {
         
         res1 <- unlist(apply(summaryOfFits[,c(1:6)], 2, function(x){
-                        x2 <- stats::p.adjust(x, method = correctionType)
+                        x2 <- p.adjust(x, method = correctionType)
                         
                         sum(x2 <threshold, na.rm = na.rm)/length(x2)
             }))
@@ -579,7 +522,7 @@ summarizeResFits <- function(summaryOfFits,
         
     }else{
         names(res1) <- gsub("_PValue", "", names(res1))
-        return(res1)
+         return(res1)
     }
 
 }

@@ -7,7 +7,7 @@
 getResiduals(modelSE)
 }
 \arguments{
-\item{modelSE}{A model object output from any ChAI modeling function (whether on a single modality or the association between two modalities)}
+\item{modelObj}{A model object output from any ChAI modeling function (whether on a single modality or the association between two modalities)}
 }
 \value{
 A SummarizedExperiment object.

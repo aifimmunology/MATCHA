@@ -23,13 +23,13 @@ getSampleTileMatrix.}
 
 \item{modelFormula}{The formula for the continuous data that should be used within glmmTMB. It should be in the
 format (exp ~ factors). All factors must be found in column names
-of the atacSE metadata, except for CellType, FragmentCounts and CellCount, which will be extracted from the atacSE.
+of the atacSE metadata, except for CellType, FragNumber and CellCount, which will be extracted from the atacSE.
 modelFormula must start with 'exp' as the response.
 See \link[glmmTMB]{glmmTMB}.}
 
 \item{ziFormula}{The formula for the zero-inflated data that should be used within glmmTMB. It should be in the
 format ( ~ factors). All factors must be found in column names
-of the atacSE colData metadata, except for CellType, FragmentCounts and CellCount, which will be extracted from the atacSE.}
+of the atacSE colData metadata, except for CellType, FragNumber and CellCount, which will be extracted from the atacSE.}
 
 \item{zi_threshold}{Zero-inflated threshold ( range = 0-1), representing the fraction of samples with zeros. At or above this threshold, the zero-inflated modeling kicks in.}
 
@@ -40,12 +40,7 @@ of the atacSE colData metadata, except for CellType, FragmentCounts and CellCoun
 \item{numCores}{integer. Number of cores to parallelize across.}
 }
 \value{
-results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
-         including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
-         the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
-         Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-         The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
-         If multiple cell types are provided, then a named list of the above objects will be returned, one for each object.
+results a SummarizedExperiment containing ZI-GLMM results
 }
 \description{
 \code{model_scATAC} High-throughput modeling of tile accessibility from scATAC \code{\link[glmmTMB]{glmmTMB}}.
@@ -55,7 +50,7 @@ results a SummarizedExperiment containing modeling results. Assays are metrics r
   modelList <- model_scATAC(STM[c(1:1000),], 
                  cellPopulation = 'CD16 Mono',
                  modelFormula = exp~ Age + Sex + days_since_symptoms + (1|PTID), 
-                 ziFormula = ~ 0 + FragmentCounts + Age, 
+                 ziFormula = ~ 0 + FragNumber + Age, 
                  verbose = TRUE, 
                  numCores = 35 )
 }

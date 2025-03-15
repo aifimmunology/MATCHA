@@ -16,7 +16,6 @@ scRNA_Associations(
   family = "negativeBinomial2",
   geneList,
   generalList = NULL,
-  allCombinations = TRUE,
   initialSampling = 5,
   numCores = 2
 )
@@ -46,19 +45,12 @@ exp1 is the dummy variable for gene expression and exp2 is the dummy variable fo
 
 \item{generalList}{A list of which rownames of generalAssay should be used for modeling associations.}
 
-\item{allCombinations}{A boolean, whether to test all possible pair-wise combinations of geneList and generalList. Default is TRUE. If False, it will require geneList and generalList to be the same length, and only test index-matched pairs (i.e. geneList[2] vs generalList[2] )}
-
 \item{initialSampling}{An integer. Default is 5. Represents the number of initial models to test when generating a null set (which is used when models fails). If your model fails often, increase this number or choose a better formula.}
 
 \item{numCores}{Optional, the number of cores to use with multiprocessing. Default is 2.}
 }
 \value{
-results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
-         including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
-         the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
-         Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-         The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
-         If multiple cell types are provided, then a named list of the above objects will be returned, one for each object.
+A summarized experiment summarizing the output.
 }
 \description{
 \code{scRNA_Associations} High-throughput GLMM-based modeling to associate gene expression to another modality, while controlling for technical confounders

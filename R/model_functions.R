@@ -7,23 +7,18 @@
 #' @param cellPopulation Name of a cell type. 
 #' @param modelFormula The formula for the continuous data that should be used within glmmTMB. It should be in the
 #'   format (exp ~ factors). All factors must be found in column names
-#'   of the atacSE metadata, except for CellType, FragmentCounts and CellCount, which will be extracted from the atacSE.
+#'   of the atacSE metadata, except for CellType, FragNumber and CellCount, which will be extracted from the atacSE.
 #'   modelFormula must start with 'exp' as the response.
 #'   See \link[glmmTMB]{glmmTMB}.
 #' @param ziFormula The formula for the zero-inflated data that should be used within glmmTMB. It should be in the
 #'   format ( ~ factors). All factors must be found in column names
-#'   of the atacSE colData metadata, except for CellType, FragmentCounts and CellCount, which will be extracted from the atacSE.
+#'   of the atacSE colData metadata, except for CellType, FragNumber and CellCount, which will be extracted from the atacSE.
 #' @param zi_threshold Zero-inflated threshold ( range = 0-1), representing the fraction of samples with zeros. At or above this threshold, the zero-inflated modeling kicks in.
 #' @param initialSampling Size of data to use for pilot
 #' @param verbose Set TRUE to display additional messages. Default is FALSE.
 #' @param numCores integer. Number of cores to parallelize across.
 #'
-#' @return results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
-#'          including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
-#'          the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
-#'          Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
-#'          If multiple cell types are provided, then a named list of the above objects will be returned, one for each object. 
+#' @return results a SummarizedExperiment containing ZI-GLMM results
 #'
 #'
 #'
@@ -32,7 +27,7 @@
 #'   modelList <- model_scATAC(STM[c(1:1000),], 
 #'                  cellPopulation = 'CD16 Mono',
 #'                  modelFormula = exp~ Age + Sex + days_since_symptoms + (1|PTID), 
-#'                  ziFormula = ~ 0 + FragmentCounts + Age, 
+#'                  ziFormula = ~ 0 + FragNumber + Age, 
 #'                  verbose = TRUE, 
 #'                  numCores = 35 )
 #' }
@@ -71,50 +66,22 @@ model_scATAC <- function(atacSE,
   if (zi_threshold < 0 | zi_threshold > 1 | ! is.numeric(zi_threshold)) {
     stop("zi_threshold must be between 0 and 1.")
   }
-    
-    
-  ## Evaluate cellPopulations. 
-  if(all(tolower(cellPopulation) == 'all')){
-   
-      cellPopulation = SummarizedExperiment::assayNames(atacSE)
-      
-  }
-    
-      
-  if(!all(cellPopulation %in% SummarizedExperiment::assayNames(atacSE))){
-   
-      stop('cellPopulation not found within atacSE object')
-      
-  }
-      
-  #If multiple cell types, then loop over all and return a list of model objects. 
-  if(length(cellPopulation) > 1){
-    
-    allRes = lapply(cellPopulation, function(XX){
-            message(stringr::str_interp('Modeling ${XX}'))
-            tryCatch({
-                gc()
-                model_scATAC(atacSE,
-                      cellPopulation = XX,
-                      modelFormula = modelFormula,
-                      ziFormula = ziFormula,
-                      zi_threshold = zi_threshold,
-                      initialSampling = initialSampling,
-                      verbose = verbose,
-                      numCores = numCores)
-                }, error = function(e){e})
-        })
-    names(allRes) = cellPopulation
-    return(allRes)
-    
+
+  if (length(cellPopulation) > 1) {
+    stop(
+      "More than one cell population was provided. ",
+      "cellPopulation must be length 1. To run over multiple cell types, ",
+      "use MOCHA to run combineSampleTileMatrix() to produce a new combined atacSE and set ",
+      "cellPopulation = 'counts'."
+    )
+  } else if (
+    (!cellPopulation %in% names(SummarizedExperiment::assays(atacSE)))
+  ) {
+    stop("cellPopulation was not found within atacSE.")
   } else if(cellPopulation == 'counts'){
-      
     newObj <- atacSE
-      
   }else{
-      
     newObj <- MOCHA::combineSampleTileMatrix(MOCHA::subsetMOCHAObject(atacSE, subsetBy = 'celltype', groupList = cellPopulation, subsetPeaks = TRUE))
-      
   }
 
   exp <- .model_generic(SE_Object = newObj,
@@ -136,7 +103,7 @@ model_scATAC <- function(atacSE,
 #' @description \code{model_scRNA} Runs high-throughout GLM modeling of gene expression using \code{\link[glmmTMB]{glmmTMB}}
 #'
 #' @param rnaSE A SummarizedExperiment object generated from normalizePseudobulk
-#' @param cellPopulation Name(s) of a cell type to be modeled, or 'all' if you want to model across all cell types. 
+#' @param cellPopulation Name of a cell type. 
 #' @param modelFormula The formula to use, in the
 #'   format (exp ~ factors). All factors must be found in column names
 #'   of the ExperimentObj metadata. modelFormula must start with 'exp' as the response.
@@ -151,12 +118,12 @@ model_scATAC <- function(atacSE,
 #' @param verbose Set TRUE to display additional messages. Default is FALSE.
 #' @param numCores integer. Number of cores to parallelize across.
 #'
-#' @return results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
+#' @return results a SummarizedExperiment containing LMEM results. Assays are metrics related to the model coefficients,
 #'          including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
 #'          the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
 #'          Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
-#'          If multiple cell types are provided, then a named list of the above objects will be returned, one for each object. 
+#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output. 
+#'
 #'
 #'
 #' @examples
@@ -191,46 +158,12 @@ model_scRNA <- function(rnaSE,
 
   }
   
- 
-  if(all(tolower(cellPopulation) == 'all')){
-   
-      cellPopulation = SummarizedExperiment::assayNames(rnaSE)
-      
+  if(!any(cellPopulation %in% names(SummarizedExperiment::assays(rnaSE)))){
+    stop('ExperimentObj does not contain an assay that matches the assayName input variable.')
   }
-      
-  if(!all(cellPopulation %in% SummarizedExperiment::assayNames(rnaSE))){
-   
-      stop('cellPopulation not found within rnaSE object')
-      
+  if(length(cellPopulation) != 1){
+    stop('Please provide only one cell type at time, or run flattenChAI to run over multiple celltypes.')
   }
-      
-  #If multiple cell types, then loop over all and return a list of model objects. 
-  if(length(cellPopulation) > 1){
-    
-    allRes = lapply(cellPopulation, function(XX){
-            message(stringr::str_interp('Modeling ${XX}'))
-            tryCatch({
-                gc()
-                
-                model_scRNA(rnaSE, cellPopulation = XX, 
-                        modelFormula, 
-                        ziFormula = ziFormula,
-                        zi_threshold = zi_threshold,
-                        family = family,
-                        detectionThreshold = detectionThreshold,
-                        expressionThreshold = expressionThreshold,
-                        cellCountThreshold = cellCountThreshold,
-                        initialSampling = initialSampling, 
-                        verbose = verbose,
-                        numCores = numCores)
-                
-            }, error = function(e){e})
-        })
-    names(allRes) = cellPopulation
-    return(allRes)
-    
-  }
-    
   # Subset object to just one cell type, and then combine to flatten additional metadata (like cell counts) into the summarizedExperiment metadata. 
   newRNA = flattenChAI(rnaSE,  cellPopulations = cellPopulation, metadataT = TRUE)
   
@@ -265,37 +198,26 @@ model_scRNA <- function(rnaSE,
   }
       
   ### Filter by minimum detection rate to help speed up modeling. No point in modeling lowly expressed genes. 
-  ## If there are any categorical variables, the filter out genes that don't pass detection in all cell groups.
-  mf = SummarizedExperiment::colData(newRNA)
-  allVariables <- colnames(mf)[colnames(mf) %in% c(all.vars(modelFormula))]
-  charClass = allVariables[unlist(lapply(allVariables, function(XX) { 
-      class(mf[,XX]) %in% c('character','factor')}))]
-  passGenes <- thresholdGenes(rnaSE,   
-                           factors = allVariables,
-                        cellPopulation = cellPopulation,
-                    detectionThreshold = detectionThreshold,
-                    expressionThreshold = expressionThreshold,
-                    cellCountThreshold = cellCountThreshold)
-      
-  newRNA = newRNA[rownames(newRNA) %in% unlist(passGenes),]
-
-
-  if(dim(newRNA)[1] == 0){
-        stop('No genes pass the detectionThreshold and expressionThreshold. Please adjust thresholding.')
+  detectMean <- rowMeans(SummarizedExperiment::assays(rnaSE@metadata$detectionRate[rownames(newRNA),])[[cellPopulation]])
+  expressMean <- rowMeans(SummarizedExperiment::assays(newRNA)[[1]])
+  if(sum(detectMean > detectionThreshold & expressMean > expressionThreshold) == 0){
+    stop('No genes pass the detectionThreshold and expressionThreshold. Please adjust thresholding.')
   }
     
-  if(sum(newRNA$CellCounts >=  cellCountThreshold) < 3){
+  newRNA = newRNA[detectMean > detectionThreshold & expressMean > expressionThreshold,]
+    
+     if(sum(newRNA$CellCounts >=  cellCountThreshold) < 3){
 
-      stop('Fewer than 3 samples passed the CellCounts threshold. Modeling not possible.')
+          stop('Fewer than 3 samples passed the CellCounts threshold. Modeling not possible.')
 
-  }else if(any(!newRNA$CellCounts >=  cellCountThreshold)){
+      }else if(any(!newRNA$CellCounts >=  cellCountThreshold)){
 
-      message(stringr::str_interp('${sum(!newRNA$CellCounts >=  cellCountThreshold)} Samples removed due to cell counts below cellCountThreshold'))
+          message(stringr::str_interp('${sum(!newRNA$CellCounts >=  cellCountThreshold)} Samples removed due to cell counts below cellCountThreshold'))
 
-      newRNA <- newRNA[,newRNA$CellCounts >=  cellCountThreshold]
+          newRNA <- newRNA[,newRNA$CellCounts >=  cellCountThreshold]
 
-  }
-
+      }
+     
   if(verbose){
     message(stringr::str_interp("${NROW(newRNA)} genes will be modeled")) 
   }
@@ -335,12 +257,11 @@ model_scRNA <- function(rnaSE,
 #' @param verbose Set TRUE to display additional messages. Default is FALSE.
 #' @param numCores integer. Number of cores to parallelize across.
 #'
-#' @return results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
+#' @return results a SummarizedExperiment containing LMEM results. Assays are metrics related to the model coefficients,
 #'          including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
 #'          the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
 #'          Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
-#'          If multiple cell types are provided, then a named list of the above objects will be returned, one for each object. 
+#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output. 
 #'
 #'
 #'
@@ -358,7 +279,7 @@ model_scRNA <- function(rnaSE,
 #' @export
 #' @keywords modeling_individual
 model_General <- function(ExperimentObj,
-                    assayName = 'General',
+                    assayName,
                     modelFormula,
                     ziFormula = ~ 0,
                     family = stats::gaussian(),
@@ -413,12 +334,11 @@ model_General <- function(ExperimentObj,
 #' @param verbose Set TRUE to display additional messages. Default is FALSE.
 #' @param numCores integer. Number of cores to parallelize across.
 #'
-#' @return results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
+#' @return results a SummarizedExperiment containing LMEM results. Assays are metrics related to the model coefficients,
 #'          including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
 #'          the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
-#'          Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
-#'          If multiple cell types are provided, then a named list of the above objects will be returned, one for each object. 
+#'          Any row metadata from the chromSE (see rowData(chromSE)) is preserved in the output. 
+#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output. 
 #'
 #'
 #'
@@ -449,44 +369,13 @@ model_ChromVAR <- function(chromSE,
     stop('chromSE is not a ChAI ChromVAR Object, created via makeChromVAR.')
 
   }
-    
-  if(all(tolower(cellPopulation) == 'all')){
-   
-      cellPopulation = SummarizedExperiment::assayNames(chromSE)
-      
+  
+  if(!any(names(SummarizedExperiment::assays(chromSE)) %in% cellPopulation)){
+    stop('chromSE does not contain an assay that matches the cellPopulation input variable.')
   }
-      
-  if(!all(cellPopulation %in% SummarizedExperiment::assayNames(chromSE))){
-   
-      stop('cellPopulation not found within chromSE object')
-      
+  if(length(cellPopulation) != 1){
+    stop('cellPopulation must be only one string, matching a cell population within the ChAI-chromVAR object.')
   }
-      
-  #If multiple cell types, then loop over all and return a list of model objects. 
-  if(length(cellPopulation) > 1){
-    
-    allRes = lapply(cellPopulation, function(XX){
-        
-            message(stringr::str_interp('Modeling ${XX}'))
-        
-            tryCatch({
-                
-                gc()
-                model_ChromVAR(chromSE, 
-                    cellPopulation = XX, 
-                    modelFormula,
-                    initialSampling = initialSampling,
-                    verbose = verbose,
-                    numCores = numCores)
-                
-            }, error = function(e){e})
-        })
-      
-    names(allRes) = cellPopulation
-    return(allRes)
-    
-  }
-
   # Subset object to just one cell type, and then combine to flatten additional metadata (like cell counts) into the summarizedExperiment metadata. 
   newChrom = flattenChAI(chromSE, cellPopulations = cellPopulation)
 
@@ -502,6 +391,9 @@ model_ChromVAR <- function(chromSE,
   return(exp)
 
 }
+
+
+
 
 
 #' @title model_generic 
@@ -520,11 +412,7 @@ model_ChromVAR <- function(chromSE,
 #' @param verbose Set TRUE to display additional messages. Default is FALSE.
 #' @param numCores integer. Number of cores to parallelize across.
 #'
-#' @return results a SummarizedExperiment containing modeling results. Assays are metrics related to the model coefficients,
-#'          including the Estimate, Std_Error, df, t_value, p_value. Within each assay, each row corresponds to each row of
-#'          the SummarizedExperiment and columns correspond to each fixed effect variable within the model.
-#'          Any row metadata from the ExperimentObject (see rowData(ExperimentObj)) is preserved in the output. 
-#'          The Residual matrix and the variance of the random effects are saved in the metadata slot of the output.
+#' @return results a SummarizedExperiment containing ZI-GLMM results
 #'
 #' @noRd
 #'
@@ -603,14 +491,10 @@ model_ChromVAR <- function(chromSE,
   continuousFormula <- deparse(continuousFormula)
   ziFormula <- deparse(ziFormula)
 
-  ## Log transform the FragmentNumbers so as to stabilize the model. But only if FragmentCounts is in the model. Same for CellCounts.
-  if(any(colnames(MetaDF) %in% c('FragmentCounts'))){
-    MetaDF$rawFragmentCounts = MetaDF$FragmentCounts
-    MetaDF$FragmentCounts <- log10(MetaDF$FragmentCounts+1)
-  }
-if(any(colnames(MetaDF) %in% c('FragmentCounts'))){
-    MetaDF$rawFragmentCounts = MetaDF$FragmentCounts
-    MetaDF$FragmentCounts <- log10(MetaDF$FragmentCounts+1)
+  ## Log transform the FragmentNumbers so as to stabilize the model. But only if FragNumber is in the model. Same for CellCounts.
+  if(any(colnames(MetaDF) %in% c('FragNumber'))){
+    MetaDF$rawFragNumber = MetaDF$FragNumber
+    MetaDF$FragNumber <- log10(MetaDF$FragNumber+1)
   }
   if(any(colnames(MetaDF) %in% c('CellCounts'))){
     MetaDF$rawCellCounts = MetaDF$CellCounts
@@ -647,7 +531,9 @@ if(any(colnames(MetaDF) %in% c('FragmentCounts'))){
         suppressMessages(library('glmmTMB'))
       suppressMessages(library('DHARMa'))
       }))
+    
 
+                               
   coeffList <- pbapply::pblapply(cl = cl, X = iterList, individualZIGLMM, 
                                 continuousFormula1 = continuousFormula,
                                 ziFormula1 = ziFormula,
@@ -821,6 +707,7 @@ generateNULL <- function(modelingData, MetaDF, continuousFormula, ziFormula, fam
 #' @noRd
 #'
 
+
 individualZIGLMM <- function(df, continuousFormula1, family1, ziFormula1, zi_threshold1, nullDFList1, modality1) {
 
     ## Test for zero-inflation, if it isn't a scATAC modeling question. 
@@ -835,7 +722,7 @@ individualZIGLMM <- function(df, continuousFormula1, family1, ziFormula1, zi_thr
           control = glmmTMB::glmmTMBControl(parallel = 1)
         ))
         
-        tmpZI <- suppressWarnings(DHARMa::testZeroInflation(modelRes,plot = FALSE)$p.value < 0.05)
+        tmpZI <- suppressWarnings(DHARMa::testZeroInflation(modelRes2)$p.value < 0.05)
         if(is.na(tmpZI)){  
             FALSE
         }else{
@@ -853,7 +740,7 @@ individualZIGLMM <- function(df, continuousFormula1, family1, ziFormula1, zi_thr
        FALSE
    }
    )
-
+        
    output_vector <- tryCatch(
     {
       # for modeling that isn't scATAC, run zero-inflated modeling only on zero-inflated features. 
@@ -939,12 +826,12 @@ individualZIGLMM <- function(df, continuousFormula1, family1, ziFormula1, zi_thr
         names(residual) = 'Residual'
 
         #Process variance
-        if(all(!is.null(varCorrObj$zi))){
+        if(!is.null(varCorrObj$zi)){
           zi_other = unlist(varCorrObj$zi)
           names(zi_other) = paste('ZI', names(zi_other), sep = "_")
           varcor_df <- c(cond_other, zi_other,residual)
-        }else if(all(df$exp !=0, na.rm = TRUE) & any(grepl('ZI_', names(nullDFList1)))){
-          subNull = nullDFList1[grepl('ZI_', names(nullDFList1))]
+        }else if(all(df$exp !=0, na.rm = TRUE)){
+          subNull = nullDFList[grepl('ZI_', names(nullDFList))]
           zi_other = rep(0, length(subNull))
           names(zi_other) = names(subNull)
           varcor_df <- c(cond_other, zi_other,residual)
@@ -983,6 +870,7 @@ individualZIGLMM <- function(df, continuousFormula1, family1, ziFormula1, zi_thr
 #' @noRd
 processModelOutputs <- function(modelOutputList, nullDFList, rownamesList, ranged = FALSE,
                                   SummarizedExperimentObj, returnList = FALSE) {
+   
     coeffNames <- rownames(nullDFList$Coeff)
     newColumnNames <- gsub('Pr\\(>\\|.\\|)','p_value', gsub(' |\\. ','_',colnames(nullDFList$Coeff)))
     output_list <- lapply(coeffNames, function(z){
@@ -1054,9 +942,4 @@ processModelOutputs <- function(modelOutputList, nullDFList, rownamesList, range
 
     return(results)
 }
-
-
-
-
-    
 
