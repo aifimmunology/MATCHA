@@ -1,6 +1,6 @@
-# ChAI: Crossmodal Modeling, Associations, & Integrations
+# MATCHA: Modeling Associations for all The Creative, Heterogeneous Assays
 
-ChAI explicitly moves beyond statistical modeling of any one type of biological data types (scRNAseq, scATACseq, Olink, flow etc...). Instead, it provides both generic and specialized functions for :
+MATCHA explicitly moves beyond statistical modeling of any one type of biological data types (scRNAseq, scATACseq, Olink, flow etc...). Instead, it provides both generic and specialized functions for :
 
 * High-throughput modeling on high dimensional data types: 
 * High-throughput modeling of relationships between features of different data types (but from the same biological sample)
@@ -16,7 +16,7 @@ Furthermore, all modeling is based on glmmTMB, allowing for:
 * Zero-inflated modeling
 * A variety of data distributions (see glmmTMB families)
 
-As a result, the user can test for complex relationships, and generate statistically-informed causal hypotheses for their biological questions (gene regulatory networks, signaling cascades, drivers of proliferation, or disease progression, etc... ). Almost any data type can be imported to ChAI, which has been vetted with:
+As a result, the user can test for complex relationships, and generate statistically-informed causal hypotheses for their biological questions (gene regulatory networks, signaling cascades, drivers of proliferation, or disease progression, etc... ). Almost any data type can be imported to matcha, which has been vetted with:
 
 * scRNA-seq (Seurat)
 * scATAC-seq (MOCHA, directly compatible)
@@ -47,15 +47,15 @@ For other systems, look here: https://cgold.readthedocs.io/en/latest/first-step/
 
 Install from GitHub:
 
-    devtools::install_github("aifimmunology/ChAI")
+    devtools::install_github("aifimmunology/matcha")
 
 Or install a specific development branch from GitHub:
 
-    devtools::install_github("aifimmunology/ChAI", ref = "your_branch_name")
+    devtools::install_github("aifimmunology/matcha", ref = "your_branch_name")
 
-The development branch has the latest stable version of ChAI.
+The development branch has the latest stable version of matcha.
 
-    devtools::install_github("aifimmunology/ChAI", ref = "development")
+    devtools::install_github("aifimmunology/matcha", ref = "development")
     
 ## <a name="overview"></a> Overview
 
@@ -72,7 +72,7 @@ The package includes a set of funcitons for:
 * Modeling assocations between features in different data types
     * GeneTile_Associations, scATAC_Associations, scRNA_Associations, ChromVAR_Associations, General_Associations
 * Getting & transforming Data Objects
-    * subsetChAI, mergeChAI, flattenChAI, transformChAI, renameCellTypes
+    * subsetmatcha, mergematcha, flattenmatcha, transformmatcha, renameCellTypes
     * getDetectionRates, getAdditionalData, getPopulationMetaData
 * Getting & using model information
     * getEstimates, modelPredictions, associatedPredictions
@@ -81,4 +81,4 @@ The package includes a set of funcitons for:
     * getRegulation, exportGeneTileLinks
 
 
-![Workflow Diagram](man/figures/chaiworkflow.png)
+![Workflow Diagram](man/figures/matchaworkflow.png)
